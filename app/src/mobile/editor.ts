@@ -6,7 +6,7 @@ import {fetchPost} from "../util/fetch";
 import {onGet} from "../protyle/util/onGet";
 import {addLoading} from "../protyle/ui/initUI";
 import {scrollCenter} from "../util/highlightById";
-import {hasClosestByAttribute} from "../protyle/util/hasClosest";
+import {isInEmbedBlock} from "../protyle/util/hasClosest";
 import {setEditMode} from "../protyle/util/setEditMode";
 import {hideElements} from "../protyle/ui/hideElements";
 import {pushBack} from "./util/MobileBackFoward";
@@ -19,7 +19,7 @@ export const getCurrentEditor = () => {
     return window.siyuan.mobile.popEditor || window.siyuan.mobile.editor;
 };
 
-export const openMobileFileById = (app: App, id: string, action = [Constants.CB_GET_HL]) => {
+export const openMobileFileById = (app: App, id: string, action: TProtyleAction[] = [Constants.CB_GET_HL]) => {
     window.siyuan.storage[Constants.LOCAL_DOCINFO] = {id};
     setStorageVal(Constants.LOCAL_DOCINFO, window.siyuan.storage[Constants.LOCAL_DOCINFO]);
     const avPanelElement = document.querySelector(".av__panel");
@@ -34,7 +34,7 @@ export const openMobileFileById = (app: App, id: string, action = [Constants.CB_
         }
         let blockElement;
         Array.from(window.siyuan.mobile.editor.protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${id}"]`)).find((item: HTMLElement) => {
-            if (!hasClosestByAttribute(item.parentElement, "data-type", "NodeBlockQueryEmbed")) {
+            if (!isInEmbedBlock(item)) {
                 blockElement = item;
                 return true;
             }
@@ -52,21 +52,23 @@ export const openMobileFileById = (app: App, id: string, action = [Constants.CB_
             showMessage(data.msg);
             return;
         }
-        const protyleOptions: IOptions = {
+        const protyleOptions: IProtyleOptions = {
             blockId: id,
             rootId: data.data.rootID,
             action,
             render: {
                 scroll: true,
+                title: true,
                 background: true,
                 gutter: true,
             },
             typewriterMode: true,
             preview: {
-                actions: ["mp-wechat", "zhihu"]
+                actions: ["mp-wechat", "zhihu", "yuque"]
             }
         };
         if (window.siyuan.mobile.editor) {
+            window.siyuan.mobile.editor.protyle.title.element.removeAttribute("data-render");
             pushBack();
             addLoading(window.siyuan.mobile.editor.protyle);
             if (window.siyuan.mobile.editor.protyle.block.rootID !== data.data.rootID) {
@@ -105,7 +107,6 @@ export const openMobileFileById = (app: App, id: string, action = [Constants.CB_
         } else {
             window.siyuan.mobile.editor = new Protyle(app, document.getElementById("editor"), protyleOptions);
         }
-        (document.getElementById("toolbarName") as HTMLInputElement).value = data.data.rootTitle === window.siyuan.languages.untitled ? "" : data.data.rootTitle;
         setEditor();
         closePanel();
     });

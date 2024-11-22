@@ -42,18 +42,18 @@ import (
 
 func RenderGoTemplate(templateContent string) (ret string, err error) {
 	tmpl := template.New("")
-	tplFuncMap := util.BuiltInTemplateFuncs()
+	tplFuncMap := treenode.BuiltInTemplateFuncs()
 	sql.SQLTemplateFuncs(&tplFuncMap)
 	tmpl = tmpl.Funcs(tplFuncMap)
 	tpl, err := tmpl.Parse(templateContent)
-	if nil != err {
+	if err != nil {
 		return "", errors.New(fmt.Sprintf(Conf.Language(44), err.Error()))
 	}
 
 	buf := &bytes.Buffer{}
 	buf.Grow(4096)
 	err = tpl.Execute(buf, nil)
-	if nil != err {
+	if err != nil {
 		return "", errors.New(fmt.Sprintf(Conf.Language(44), err.Error()))
 	}
 	ret = buf.String()
@@ -62,7 +62,7 @@ func RenderGoTemplate(templateContent string) (ret string, err error) {
 
 func RemoveTemplate(p string) (err error) {
 	err = filelock.Remove(p)
-	if nil != err {
+	if err != nil {
 		logging.LogErrorf("remove template failed: %s", err)
 	}
 	return
@@ -77,7 +77,7 @@ func SearchTemplate(keyword string) (ret []*Block) {
 	}
 
 	groups, err := os.ReadDir(templates)
-	if nil != err {
+	if err != nil {
 		logging.LogErrorf("read templates failed: %s", err)
 		return
 	}
@@ -193,9 +193,54 @@ func DocSaveAsTemplate(id, name string, overwrite bool) (code int, err error) {
 	return
 }
 
+func RenderDynamicIconContentTemplate(content, id string) (ret string) {
+	tree, err := LoadTreeByBlockID(id)
+	if err != nil {
+		return
+	}
+
+	node := treenode.GetNodeInTree(tree, id)
+	if nil == node {
+		return
+	}
+	block := sql.BuildBlockFromNode(node, tree)
+	if nil == block {
+		return
+	}
+
+	dataModel := map[string]string{}
+	title := block.Name
+	if "d" == block.Type {
+		title = block.Content
+	}
+	dataModel["title"] = title
+	dataModel["id"] = block.ID
+	dataModel["name"] = block.Name
+	dataModel["alias"] = block.Alias
+
+	goTpl := template.New("").Delims(".action{", "}")
+	tplFuncMap := treenode.BuiltInTemplateFuncs()
+	sql.SQLTemplateFuncs(&tplFuncMap)
+	goTpl = goTpl.Funcs(tplFuncMap)
+	tpl, err := goTpl.Funcs(tplFuncMap).Parse(content)
+	if err != nil {
+		err = errors.New(fmt.Sprintf(Conf.Language(44), err.Error()))
+		return
+	}
+
+	buf := &bytes.Buffer{}
+	buf.Grow(4096)
+	if err = tpl.Execute(buf, dataModel); err != nil {
+		err = errors.New(fmt.Sprintf(Conf.Language(44), err.Error()))
+		return
+	}
+	ret = buf.String()
+	return
+}
+
 func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, err error) {
 	tree, err = LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -206,7 +251,7 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 	}
 	block := sql.BuildBlockFromNode(node, tree)
 	md, err := os.ReadFile(p)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -224,18 +269,18 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 	}
 
 	goTpl := template.New("").Delims(".action{", "}")
-	tplFuncMap := util.BuiltInTemplateFuncs()
+	tplFuncMap := treenode.BuiltInTemplateFuncs()
 	sql.SQLTemplateFuncs(&tplFuncMap)
 	goTpl = goTpl.Funcs(tplFuncMap)
 	tpl, err := goTpl.Funcs(tplFuncMap).Parse(gulu.Str.FromBytes(md))
-	if nil != err {
+	if err != nil {
 		err = errors.New(fmt.Sprintf(Conf.Language(44), err.Error()))
 		return
 	}
 
 	buf := &bytes.Buffer{}
 	buf.Grow(4096)
-	if err = tpl.Execute(buf, dataModel); nil != err {
+	if err = tpl.Execute(buf, dataModel); err != nil {
 		err = errors.New(fmt.Sprintf(Conf.Language(44), err.Error()))
 		return
 	}
@@ -314,11 +359,7 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 						return ast.WalkContinue
 					}
 
-					table, renderErr := sql.RenderAttributeViewTable(attrView, view, "", GetBlockAttrsWithoutWaitWriting)
-					if nil != renderErr {
-						logging.LogErrorf("render attribute view [%s] table failed: %s", n.AttributeViewID, renderErr)
-						return ast.WalkContinue
-					}
+					table := sql.RenderAttributeViewTable(attrView, view, "")
 
 					var aligns []int
 					for range table.Columns {
@@ -345,9 +386,9 @@ func RenderTemplate(p, id string, preview bool) (tree *parse.Tree, dom string, e
 	})
 	for _, n := range nodesNeedAppendChild {
 		if ast.NodeBlockquote == n.Type {
-			n.FirstChild.InsertAfter(treenode.NewParagraph())
+			n.FirstChild.InsertAfter(treenode.NewParagraph(""))
 		} else {
-			n.AppendChild(treenode.NewParagraph())
+			n.AppendChild(treenode.NewParagraph(""))
 		}
 	}
 	for _, n := range unlinks {

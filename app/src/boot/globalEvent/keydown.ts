@@ -71,6 +71,7 @@ import {filterHotkey} from "./commonHotkey";
 import {setReadOnly} from "../../config/util/setReadOnly";
 import {copyPNGByLink} from "../../menus/util";
 import {globalCommand} from "./command/global";
+import {duplicateCompletely} from "../../protyle/render/av/action";
 
 const switchDialogEvent = (app: App, event: MouseEvent) => {
     event.preventDefault();
@@ -286,7 +287,7 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return true;
     }
-    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.quickMakeCard.custom, event)) {
+    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.quickMakeCard.custom, event) && !window.siyuan.config.readonly) {
         if (protyle.title?.editElement.contains(range.startContainer)) {
             quickMakeCard(protyle, [protyle.title.element]);
         } else {
@@ -315,7 +316,7 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         event.preventDefault();
         return true;
     }
-    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.spaceRepetition.custom, event)) {
+    if (!isFileFocus && matchHotKey(window.siyuan.config.keymap.editor.general.spaceRepetition.custom, event) && !window.siyuan.config.readonly) {
         fetchPost("/api/riff/getTreeRiffDueCards", {rootID: protyle.block.rootID}, (response) => {
             openCardByData(app, response.data, "doc", protyle.block.rootID, protyle.title?.editElement.textContent || window.siyuan.languages.untitled);
         });
@@ -333,7 +334,8 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         return true;
     }
 
-    if (!isFileFocus && !event.repeat && matchHotKey(window.siyuan.config.keymap.editor.general.duplicate.custom, event)) {
+    if (!isFileFocus && !event.repeat && !protyle.disabled &&
+        matchHotKey(window.siyuan.config.keymap.editor.general.duplicate.custom, event)) {
         event.preventDefault();
         event.stopPropagation();
         let selectsElement: HTMLElement[] = Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--select"));
@@ -445,6 +447,15 @@ const editKeydown = (app: App, event: KeyboardEvent) => {
         } else {
             copyPlainText(range.toString());
         }
+        event.preventDefault();
+        return true;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.duplicateCompletely.custom, event)) {
+        const nodeElement = hasClosestBlock(range.startContainer);
+        if (!nodeElement || !nodeElement.classList.contains("av")) {
+            return false;
+        }
+        duplicateCompletely(protyle, nodeElement);
         event.preventDefault();
         return true;
     }
@@ -582,7 +593,7 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
     const pathString = liElements[0].getAttribute("data-path");
     const isFile = liElements[0].getAttribute("data-type") === "navigation-file";
 
-    if (matchHotKey(window.siyuan.config.keymap.editor.general.spaceRepetition.custom, event)) {
+    if (matchHotKey(window.siyuan.config.keymap.editor.general.spaceRepetition.custom, event) && !window.siyuan.config.readonly) {
         if (isFile) {
             const id = liElements[0].getAttribute("data-node-id");
             fetchPost("/api/riff/getTreeRiffDueCards", {rootID: id}, (response) => {
@@ -865,6 +876,9 @@ const fileTreeKeydown = (app: App, event: KeyboardEvent) => {
     }
     if (event.key === "Delete" || (event.key === "Backspace" && isMac())) {
         window.siyuan.menus.menu.remove();
+        if (document.querySelector(`.b3-dialog--open[data-key="${Constants.DIALOG_CONFIRM}"]`)) {
+            return;
+        }
         deleteFiles(liElements);
         return true;
     }
@@ -1126,12 +1140,12 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
                 const initData = item.headElement.getAttribute("data-initdata");
                 if (item.model instanceof Editor) {
                     rootId = ` data-node-id="${item.model.editor.protyle.block.rootID}"`;
-                    icon = unicode2Emoji(item.docIcon || Constants.SIYUAN_IMAGE_FILE, "b3-list-item__graphic", true);
+                    icon = unicode2Emoji(item.docIcon || window.siyuan.storage[Constants.LOCAL_IMAGES].file, "b3-list-item__graphic", true);
                 } else if (initData) {
                     const initDataObj = JSON.parse(initData);
                     if (initDataObj.instance === "Editor") {
                         rootId = ` data-node-id="${initDataObj.rootId}"`;
-                        icon = unicode2Emoji(item.docIcon || Constants.SIYUAN_IMAGE_FILE, "b3-list-item__graphic", true);
+                        icon = unicode2Emoji(item.docIcon || window.siyuan.storage[Constants.LOCAL_IMAGES].file, "b3-list-item__graphic", true);
                     }
                 }
                 tabHtml += `<li data-index="${index}" data-id="${item.id}"${rootId} class="b3-list-item${currentId === item.id ? " b3-list-item--focus" : ""}"${currentId === item.id ? ' data-original="true"' : ""}>${icon}<span class="b3-list-item__text">${escapeHtml(item.title)}</span></li>`;
@@ -1357,6 +1371,11 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
             return;
         }
 
+        // 闪卡长按 Esc 光标定位到闪卡按钮上 https://github.com/siyuan-note/siyuan/issues/12989
+        if (document.activeElement && hasClosestByClassName(document.activeElement, "card__action")) {
+            return;
+        }
+
         if (window.siyuan.dialogs.length > 0) {
             window.siyuan.dialogs[window.siyuan.dialogs.length - 1].destroy();
             return;
@@ -1391,16 +1410,12 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
         }
 
         // 光标在文档树等面板中，按 Esc 回到编辑器中 https://github.com/siyuan-note/siyuan/issues/4289
-        let range;
         if (getSelection().rangeCount > 0) {
-            range = getSelection().getRangeAt(0);
-            const protypleElement = hasClosestByClassName(range.startContainer, "protyle-content", true);
-            if (protypleElement) {
+            const range = getSelection().getRangeAt(0);
+            if (hasClosestByClassName(range.startContainer, "protyle-content", true)) {
                 focusByRange(range);
                 return;
             }
-        } else {
-            range = document.createRange();
         }
         const lastBackStack = window.siyuan.backStack[window.siyuan.backStack.length - 1];
         if (lastBackStack && lastBackStack.protyle.toolbar.range) {
@@ -1561,6 +1576,16 @@ export const windowKeyDown = (app: App, event: KeyboardEvent) => {
     if (matchHotKey(window.siyuan.config.keymap.general.stickSearch.custom, event)) {
         globalCommand("stickSearch", app);
         event.preventDefault();
+        return;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.general.unsplit.custom, event) && !event.repeat) {
+        event.preventDefault();
+        globalCommand("unsplit", app);
+        return;
+    }
+    if (matchHotKey(window.siyuan.config.keymap.general.unsplitAll.custom, event) && !event.repeat) {
+        event.preventDefault();
+        globalCommand("unsplitAll", app);
         return;
     }
     if (editKeydown(app, event)) {

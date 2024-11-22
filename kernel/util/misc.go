@@ -18,7 +18,9 @@ package util
 
 import (
 	"bytes"
+	"fmt"
 	"math/rand"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,20 @@ import (
 
 func init() {
 	rand.Seed(time.Now().UTC().UnixNano())
+}
+
+func GetDuplicateName(master string) (ret string) {
+	ret = master + " (1)"
+	r := regexp.MustCompile("^(.*) \\((\\d+)\\)$")
+	m := r.FindStringSubmatch(master)
+	if nil == m || 3 > len(m) {
+		return
+	}
+
+	num, _ := strconv.Atoi(m[2])
+	num++
+	ret = fmt.Sprintf("%s (%d)", m[1], num)
+	return
 }
 
 var (
@@ -67,19 +83,17 @@ func EscapeHTML(s string) (ret string) {
 		return
 	}
 
-	ret = strings.ReplaceAll(ret, "&amp;", "__@amp__")
-	ret = strings.ReplaceAll(ret, "&#39;", "__@39__")
-	ret = strings.ReplaceAll(ret, "&lt;", "__@lt__")
-	ret = strings.ReplaceAll(ret, "&gt;", "__@gt__")
-	ret = strings.ReplaceAll(ret, "&#34;", "__@34__")
-	ret = strings.ReplaceAll(ret, "&#13;", "__@13__")
 	ret = html.EscapeString(ret)
-	ret = strings.ReplaceAll(ret, "__@amp__", "&amp;")
-	ret = strings.ReplaceAll(ret, "__@39__", "&#39;")
-	ret = strings.ReplaceAll(ret, "__@lt__", "&lt;")
-	ret = strings.ReplaceAll(ret, "__@gt__", "&gt;")
-	ret = strings.ReplaceAll(ret, "__@34__", "&#34;")
-	ret = strings.ReplaceAll(ret, "__@13__", "&#13;")
+	return
+}
+
+func UnescapeHTML(s string) (ret string) {
+	ret = s
+	if "" == strings.TrimSpace(ret) {
+		return
+	}
+
+	ret = html.UnescapeString(ret)
 	return
 }
 
@@ -130,7 +144,7 @@ func Convert2Float(s string) (float64, bool) {
 	}
 	s = buf.String()
 	ret, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-	if nil != err {
+	if err != nil {
 		return 0, false
 	}
 	return ret, true

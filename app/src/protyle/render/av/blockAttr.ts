@@ -1,13 +1,16 @@
 import {fetchPost} from "../../../util/fetch";
 import {addCol, getColIconByType} from "./col";
-import {escapeAttr} from "../../../util/escape";
+import {escapeAriaLabel, escapeAttr, escapeHtml} from "../../../util/escape";
 import * as dayjs from "dayjs";
-import {popTextCell} from "./cell";
-import {hasClosestBlock, hasClosestByClassName} from "../../util/hasClosest";
+import {popTextCell, updateCellsValue} from "./cell";
+import {hasClosestBlock, hasClosestByAttribute, hasClosestByClassName} from "../../util/hasClosest";
 import {unicode2Emoji} from "../../../emoji";
 import {transaction} from "../../wysiwyg/transaction";
 import {openMenuPanel} from "./openMenuPanel";
 import {uploadFiles} from "../../upload";
+import {openLink} from "../../../editor/openLink";
+import {editAssetItem} from "./asset";
+import {previewImage} from "../../preview/image";
 
 const genAVRollupHTML = (value: IAVCellValue) => {
     let html = "";
@@ -59,20 +62,24 @@ export const genAVValueHTML = (value: IAVCellValue) => {
             html = `<textarea style="resize: vertical" rows="${value.text.content.split("\n").length}" class="b3-text-field b3-text-field--text fn__flex-1">${value.text.content}</textarea>`;
             break;
         case "number":
-            html = `<input value="${value.number.content || ""}" type="number" class="b3-text-field b3-text-field--text fn__flex-1">`;
+            html = `<input value="${value.number.isNotEmpty ? value.number.content : ""}" type="number" class="b3-text-field b3-text-field--text fn__flex-1">
+<span class="fn__space"></span><span class="fn__flex-center ft__on-surface b3-tooltips__w b3-tooltips" aria-label="${window.siyuan.languages.format}">${value.number.formattedContent}</span><span class="fn__space"></span>`;
             break;
         case "mSelect":
         case "select":
-            value.mSelect?.forEach(item => {
-                html += `<span class="b3-chip b3-chip--middle" style="background-color:var(--b3-font-background${item.color});color:var(--b3-font-color${item.color})">${item.content}</span>`;
+            value.mSelect?.forEach((item, index) => {
+                if (value.type === "select" && index > 0) {
+                    return;
+                }
+                html += `<span class="b3-chip b3-chip--middle" style="background-color:var(--b3-font-background${item.color});color:var(--b3-font-color${item.color})">${escapeHtml(item.content)}</span>`;
             });
             break;
         case "mAsset":
             value.mAsset?.forEach(item => {
                 if (item.type === "image") {
-                    html += `<img class="av__cellassetimg" src="${item.content}">`;
+                    html += `<img class="av__cellassetimg ariaLabel" aria-label="${item.content}" src="${item.content}">`;
                 } else {
-                    html += `<span class="b3-chip b3-chip--middle av__celltext--url" data-url="${item.content}">${item.name}</span>`;
+                    html += `<span class="b3-chip b3-chip--middle av__celltext--url ariaLabel" aria-label="${escapeAttr(item.content)}" data-name="${escapeAttr(item.name)}" data-url="${escapeAttr(item.content)}">${item.name || item.content}</span>`;
                 }
             });
             break;
@@ -149,6 +156,7 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
                 key: {
                     type: TAVCol,
                     name: string,
+                    desc: string,
                     icon: string,
                     id: string,
                     options?: {
@@ -175,9 +183,9 @@ export const renderAVAttribute = (element: HTMLElement, id: string, protyle: IPr
             table.keyValues?.forEach(item => {
                 innerHTML += `<div class="block__icons av__row" data-id="${id}" data-col-id="${item.key.id}">
     <div class="block__icon" draggable="true"><svg><use xlink:href="#iconDrag"></use></svg></div>
-    <div class="block__logo ariaLabel fn__pointer" data-type="editCol" data-position="parentW" aria-label="${escapeAttr(item.key.name)}">
+    <div class="block__logo ariaLabel fn__pointer" data-type="editCol" data-position="parentW" aria-label="${escapeAriaLabel(item.key.name)}<div class='ft__on-surface'>${escapeAriaLabel(item.key.desc)}</div>">
         ${item.key.icon ? unicode2Emoji(item.key.icon, "block__logoicon", true) : `<svg class="block__logoicon"><use xlink:href="#${getColIconByType(item.key.type)}"></use></svg>`}
-        <span>${item.key.name}</span>
+        <span>${escapeHtml(item.key.name)}</span>
     </div>
     <div data-av-id="${table.avID}" data-col-id="${item.values[0].keyID}" data-block-id="${item.values[0].blockID}" data-id="${item.values[0].id}" data-type="${item.values[0].type}" 
 data-options="${item.key?.options ? escapeAttr(JSON.stringify(item.key.options)) : "[]"}"
@@ -217,6 +225,7 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                 });
             });
             element.addEventListener("drop", () => {
+                counter = 0;
                 window.siyuan.dragElement.style.opacity = "";
                 const targetElement = element.querySelector(".dragover__bottom, .dragover__top") as HTMLElement;
                 if (targetElement && dragBlockElement) {
@@ -260,17 +269,27 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                 }
                 event.preventDefault();
                 const nodeRect = targetElement.getBoundingClientRect();
-                targetElement.classList.remove("dragover__bottom", "dragover__top");
+                element.querySelectorAll(".dragover__bottom, .dragover__top").forEach((item: HTMLElement) => {
+                    item.classList.remove("dragover__bottom", "dragover__top");
+                });
                 if (event.clientY > nodeRect.top + nodeRect.height / 2) {
                     targetElement.classList.add("dragover__bottom");
                 } else {
                     targetElement.classList.add("dragover__top");
                 }
             });
+            let counter = 0;
             element.addEventListener("dragleave", () => {
-                element.querySelectorAll(".dragover__bottom, .dragover__top").forEach((item: HTMLElement) => {
-                    item.classList.remove("dragover__bottom", "dragover__top");
-                });
+                counter--;
+                if (counter === 0) {
+                    element.querySelectorAll(".dragover__bottom, .dragover__top").forEach((item: HTMLElement) => {
+                        item.classList.remove("dragover__bottom", "dragover__top");
+                    });
+                }
+            });
+            element.addEventListener("dragenter", (event) => {
+                event.preventDefault();
+                counter++;
             });
             element.addEventListener("dragend", () => {
                 if (window.siyuan.dragElement) {
@@ -280,96 +299,43 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
             });
             element.addEventListener("paste", (event) => {
                 const files = event.clipboardData.files;
-                if (document.querySelector(".av__panel .b3-form__upload") && files && files.length > 0) {
-                    uploadFiles(protyle, files);
+                if (document.querySelector(".av__panel .b3-form__upload")) {
+                    if (files && files.length > 0) {
+                        uploadFiles(protyle, files);
+                    } else {
+                        const textPlain = event.clipboardData.getData("text/plain");
+                        const target = event.target as HTMLElement;
+                        const blockElement = hasClosestBlock(target);
+                        const cellsElement = hasClosestByAttribute(target, "data-type", "mAsset");
+                        if (blockElement && cellsElement && textPlain) {
+                            updateCellsValue(protyle, blockElement as HTMLElement, textPlain, [cellsElement], undefined, protyle.lute.Md2BlockDOM(textPlain));
+                            document.querySelector(".av__panel")?.remove();
+                        }
+                    }
                 }
             });
             element.addEventListener("click", (event) => {
-                let target = event.target as HTMLElement;
-                const blockElement = hasClosestBlock(target);
-                if (!blockElement) {
-                    return;
-                }
-                while (target && !element.isSameNode(target)) {
-                    const type = target.getAttribute("data-type");
-                    if (type === "date") {
-                        popTextCell(protyle, [target], "date");
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    } else if (type === "select" || type === "mSelect") {
-                        popTextCell(protyle, [target], target.getAttribute("data-type") as TAVCol);
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    } else if (type === "mAsset") {
-                        element.querySelectorAll('.custom-attr__avvalue[data-type="mAsset"]').forEach(item => {
-                            item.removeAttribute("data-active");
-                        });
-                        target.setAttribute("data-active", "true");
-                        target.focus();
-                        popTextCell(protyle, [target], "mAsset");
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    } else if (type === "checkbox") {
-                        popTextCell(protyle, [target], "checkbox");
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    } else if (type === "relation") {
-                        popTextCell(protyle, [target], "relation");
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    } else if (type === "template") {
-                        popTextCell(protyle, [target], "template");
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    } else if (type === "rollup") {
-                        popTextCell(protyle, [target], "rollup");
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    } else if (type === "addColumn") {
-                        const rowElements = blockElement.querySelectorAll(".av__row");
-                        const addMenu = addCol(protyle, blockElement, rowElements[rowElements.length - 1].getAttribute("data-col-id"));
-                        const addRect = target.getBoundingClientRect();
-                        addMenu.open({
-                            x: addRect.left,
-                            y: addRect.bottom,
-                            h: addRect.height
-                        });
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    } else if (type === "editCol") {
-                        openMenuPanel({
-                            protyle,
-                            blockElement,
-                            type: "edit",
-                            colId: target.parentElement.dataset.colId
-                        });
-                        event.stopPropagation();
-                        event.preventDefault();
-                        break;
-                    }
-                    target = target.parentElement;
-                }
+                openEdit(protyle, element, event);
+            });
+            element.addEventListener("contextmenu", (event) => {
+                openEdit(protyle, element, event);
             });
             element.innerHTML = html;
         }
         element.querySelectorAll(".b3-text-field--text").forEach((item: HTMLInputElement) => {
             item.addEventListener("change", () => {
                 let value;
-                if (["url", "text", "email", "phone"].includes(item.parentElement.dataset.type)) {
+                const type = item.parentElement.dataset.type;
+                if (["url", "text", "email", "phone"].includes(type)) {
                     value = {
-                        [item.parentElement.dataset.type]: {
+                        [type]: {
                             content: item.value
                         }
                     };
-                } else if (item.parentElement.dataset.type === "number") {
+                    if (type !== "text") {
+                        item.parentElement.querySelector("a").setAttribute("href", (type === "url" ? "" : (type === "email" ? "mailto:" : "tel:")) + item.value);
+                    }
+                } else if (type === "number") {
                     if ("undefined" === item.value || !item.value) {
                         value = {
                             number: {
@@ -390,8 +356,11 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
                     avID: item.parentElement.dataset.avId,
                     keyID: item.parentElement.dataset.colId,
                     rowID: item.parentElement.dataset.blockId,
-                    cellID: item.parentElement.dataset.id,
                     value
+                }, (setResponse) => {
+                    if (type === "number") {
+                        item.parentElement.querySelector(".fn__flex-center").textContent = setResponse.data.value.number.formattedContent;
+                    }
                 });
             });
         });
@@ -399,4 +368,108 @@ class="fn__flex-1 fn__flex${["url", "text", "number", "email", "phone", "block"]
             cb(element);
         }
     });
+};
+
+const openEdit = (protyle: IProtyle, element: HTMLElement, event: MouseEvent) => {
+    let target = event.target as HTMLElement;
+    const blockElement = hasClosestBlock(target);
+    if (!blockElement) {
+        return;
+    }
+    while (target && !element.isSameNode(target)) {
+        const type = target.getAttribute("data-type");
+        if (target.classList.contains("av__celltext--url") || target.classList.contains("av__cellassetimg")) {
+            if (event.type === "contextmenu" || (!target.dataset.url && target.tagName !== "IMG")) {
+                let index = 0;
+                Array.from(target.parentElement.children).find((item, i) => {
+                    if (item.isSameNode(target)) {
+                        index = i;
+                        return true;
+                    }
+                });
+                editAssetItem({
+                    protyle,
+                    cellElements: [target.parentElement],
+                    blockElement: hasClosestBlock(target) as HTMLElement,
+                    content: target.tagName === "IMG" ? target.getAttribute("src") : target.getAttribute("data-url"),
+                    type: target.tagName === "IMG" ? "image" : "file",
+                    name: target.tagName === "IMG" ? "" : target.getAttribute("data-name"),
+                    index,
+                    rect: target.getBoundingClientRect()
+                });
+            } else {
+                if (target.tagName === "IMG") {
+                    previewImage(target.getAttribute("src"));
+                } else {
+                    openLink(protyle, target.dataset.url, event, event.ctrlKey || event.metaKey);
+                }
+            }
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "date") {
+            popTextCell(protyle, [target], "date");
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "select" || type === "mSelect") {
+            popTextCell(protyle, [target], target.getAttribute("data-type") as TAVCol);
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "mAsset") {
+            element.querySelectorAll('.custom-attr__avvalue[data-type="mAsset"]').forEach(item => {
+                item.removeAttribute("data-active");
+            });
+            target.setAttribute("data-active", "true");
+            target.focus();
+            popTextCell(protyle, [target], "mAsset");
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "checkbox") {
+            popTextCell(protyle, [target], "checkbox");
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "relation") {
+            popTextCell(protyle, [target], "relation");
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "template") {
+            popTextCell(protyle, [target], "template");
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "rollup") {
+            popTextCell(protyle, [target], "rollup");
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "addColumn") {
+            const rowElements = blockElement.querySelectorAll(".av__row");
+            const addMenu = addCol(protyle, blockElement, rowElements[rowElements.length - 1].getAttribute("data-col-id"));
+            const addRect = target.getBoundingClientRect();
+            addMenu.open({
+                x: addRect.left,
+                y: addRect.bottom,
+                h: addRect.height
+            });
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        } else if (type === "editCol") {
+            openMenuPanel({
+                protyle,
+                blockElement,
+                type: "edit",
+                colId: target.parentElement.dataset.colId
+            });
+            event.stopPropagation();
+            event.preventDefault();
+            break;
+        }
+        target = target.parentElement;
+    }
 };

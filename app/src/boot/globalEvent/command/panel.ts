@@ -59,7 +59,8 @@ export const commandPanel = (app: App) => {
             "goForward", "goToEditTabNext", "goToEditTabPrev", "goToTab1", "goToTab2", "goToTab3", "goToTab4",
             "goToTab5", "goToTab6", "goToTab7", "goToTab8", "goToTab9", "goToTabNext", "goToTabPrev", "lockScreen",
             "mainMenu", "move", "newFile", "recentDocs", "replace", "riffCard", "search", "selectOpen1", "syncNow",
-            "splitLR", "splitMoveB", "splitMoveR", "splitTB", "tabToWindow", "stickSearch", "toggleDock"];
+            "splitLR", "splitMoveB", "splitMoveR", "splitTB", "tabToWindow", "stickSearch", "toggleDock", "unsplitAll",
+            "unsplit"];
         /// #if !BROWSER
         keys.push("toggleWin");
         /// #endif
@@ -76,16 +77,17 @@ export const commandPanel = (app: App) => {
         plugin.commands.forEach(command => {
             const liElement = document.createElement("li");
             liElement.classList.add("b3-list-item");
-            liElement.dataset.command = command.langKey;
             liElement.innerHTML = `<span class="b3-list-item__text">${plugin.displayName}: ${command.langText || plugin.i18n[command.langKey]}</span>
 <span class="b3-list-item__meta${isMobile() ? " fn__none" : ""}">${updateHotkeyTip(command.customHotkey)}</span>`;
-            liElement.addEventListener("click", () => {
+            liElement.addEventListener("click", (event) => {
                 if (command.callback) {
                     command.callback();
                 } else if (command.globalCallback) {
                     command.globalCallback();
                 }
                 dialog.destroy();
+                event.preventDefault();
+                event.stopPropagation();
             });
             listElement.insertAdjacentElement("beforeend", liElement);
         });
@@ -426,7 +428,7 @@ export const execByCommand = async (options: {
         case "move":
             if (!isFileFocus) {
                 const nodeElement = hasClosestBlock(range.startContainer);
-                if (protyle.title?.editElement.contains(range.startContainer) || !nodeElement) {
+                if (protyle.title?.editElement.contains(range.startContainer) || !nodeElement || window.siyuan.menus.menu.element.getAttribute("data-name") === "titleMenu") {
                     movePathTo((toPath, toNotebook) => {
                         moveToPath([protyle.path], toNotebook[0], toPath[0]);
                     }, [protyle.path], range);

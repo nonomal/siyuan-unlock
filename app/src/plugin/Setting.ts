@@ -7,6 +7,7 @@ export class Setting {
     private destroyCallback: () => void;
     private width: string;
     private height: string;
+    public dialog:Dialog;
 
     constructor(options: {
         height?: string,
@@ -15,6 +16,7 @@ export class Setting {
         confirmCallback?: () => void
     }) {
         this.confirmCallback = options.confirmCallback;
+        this.destroyCallback = options.destroyCallback;
         this.width = options.width || (isMobile() ? "92vw" : "768px");
         this.height = options.height || "80vh";
     }
@@ -97,5 +99,6 @@ export class Setting {
             }
             dialog.destroy();
         });
+        this.dialog = dialog;
     }
 }

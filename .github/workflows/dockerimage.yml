@@ -7,9 +7,6 @@ on:
         description: '镜像标签，留空则使用 package.json 中的版本号。务必注意：请确认选择了正确的分支。完整输入示例：3.0.11-rc0 '
         required: true
         default: ''
-  push:
-    branches:
-      - master
 
 # ref https://docs.github.com/zh/actions/learn-github-actions/variables
 env:
@@ -77,4 +74,3 @@ jobs:
         if: ${{ github.event_name == 'push' || github.event.inputs.image_tag == '' }}
         run: |
           docker buildx build --push --platform linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8 -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:latest -t ${{ env.docker_hub_owner }}/${{ env.docker_hub_repo }}:v${{ steps.version.outputs.value }} .
-    

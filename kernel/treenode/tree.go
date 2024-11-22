@@ -45,6 +45,9 @@ func NodeHash(node *ast.Node, tree *parse.Tree, luteEngine *lute.Lute) string {
 	}
 	hpath := tree.HPath
 	data := tree.Box + tree.Path + hpath + string(ial) + md
+	if nil != node.Parent {
+		data += node.Parent.ID
+	}
 	return fmt.Sprintf("%x", sha256.Sum256(gulu.Str.ToBytes(data)))[:7]
 }
 
@@ -104,8 +107,11 @@ func RootChildIDs(rootID string) (ret []string) {
 	return
 }
 
-func NewParagraph() (ret *ast.Node) {
-	newID := ast.NewNodeID()
+func NewParagraph(id string) (ret *ast.Node) {
+	newID := id
+	if "" == newID {
+		newID = ast.NewNodeID()
+	}
 	ret = &ast.Node{ID: newID, Type: ast.NodeParagraph}
 	ret.SetIALAttr("id", newID)
 	ret.SetIALAttr("updated", newID[:14])

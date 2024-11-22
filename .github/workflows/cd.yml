@@ -1,12 +1,8 @@
 name: CD For SiYuan Unlock
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
-# ref https://docs.github.com/zh/actions/learn-github-actions/variables
 env:
   repo_name_android: "siyuan-android"
   repo_name: "siyuan-unlock"
@@ -32,15 +28,6 @@ jobs:
           python-version: "3.11"
       - run: pip install PyGithub
 
-      - id: thisLatestRelease
-        uses: pozetroninc/github-action-get-latest-release@master
-        with:
-          # owner: siyuan-note
-          # repo: siyuan
-          repository: ${{ github.repository }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          excludes: prerelease, draft
-
       - name: Extract version from package.json
         uses: sergeysova/jq-action@v2
         id: version
@@ -62,24 +49,24 @@ jobs:
       - name: Gather Release Information
         id: release_info
         run: |
-            echo "release_title=$(git show --format=%s --no-patch | head -1)" >> $GITHUB_OUTPUT
-            echo "release_version=$(TZ=Asia/Shanghai date +'v%Y%m%d%H%M')" >> $GITHUB_OUTPUT
-            changelog_header=$(python scripts/parse-changelog-HEAD.py -t ${{ github.ref }} -b ${{ steps.thisLatestRelease.outputs.release }} -e ${{ steps.electronVersion.outputs.value }} ${{ env.repo_owner }}/${{ env.repo_name }})
-            changelog=$(python scripts/parse-changelog.py -t ${{ github.ref }} ${{ env.repo_owner }}/${{ env.repo_name }})
-            EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-            echo "release_body<<$EOF" >> $GITHUB_ENV
-            echo "$changelog_header" >> $GITHUB_ENV
-            echo "$changelog" >> $GITHUB_ENV
-            echo "$EOF" >> $GITHUB_ENV
-        env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION=${{ steps.version.outputs.value }}
+          TIMESTAMP=$(date +'%Y%m%d%H%M%S')
+          RELEASE_VERSION="v${VERSION}-${TIMESTAMP}"
+          echo "release_version=${RELEASE_VERSION}" >> $GITHUB_OUTPUT
+          echo "release_title=Release ${RELEASE_VERSION}" >> $GITHUB_OUTPUT
+          changelog=$(git log -1 --pretty=%B)
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "release_body<<$EOF" >> $GITHUB_ENV
+          echo "Release version ${RELEASE_VERSION}" >> $GITHUB_ENV
+          echo "Commit message: $changelog" >> $GITHUB_ENV
+          echo "$EOF" >> $GITHUB_ENV
 
       - name: Create Release
         id: create_release
         uses: ncipollo/release-action@v1
         with:
-          name: ${{ steps.release_info.outputs.release_version }}
-          tag: ${{ github.ref }}
+          name: ${{ steps.release_info.outputs.release_title }}
+          tag: ${{ steps.release_info.outputs.release_version }}
           body: ${{ env.release_body }}
           draft: false
           prerelease: true
@@ -150,16 +137,12 @@ jobs:
       if: "contains( matrix.config.goos, 'windows')"
       with:
         install: p7zip mingw-w64-x86_64-lua
-
-    - name: Set up TDM-GCC
-      run: msys2 -c "bash go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/scripts/get-tdm-gcc.sh tdm https://github.com/jmeubank/tdm-gcc/releases/download/v10.3.0-tdm-1/tdm-gcc-10.3.0.exe" && echo "CC=${{ github.workspace }}/tdm/bin/gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      if: "contains( matrix.config.goarch, '386')"
-      working-directory: ${{ github.workspace }}
-
+      
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version-file: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/kernel/go.mod
+        go-version: '1.23'  # Specify the Go version you need
+        check-latest: true
     - run: go version
 
     - name: Set up goversioninfo
@@ -240,6 +223,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ needs.create_release.outputs.upload_url }}
-        asset_name: siyuan-${{ needs.create_release.outputs.release_version }}-${{ matrix.config.suffix }}
+        asset_name: siyuan-v${{ needs.create_release.outputs.version }}-${{ matrix.config.suffix }}
         asset_path: ${{ github.workspace }}/go/src/github.com/${{ env.repo_owner }}/${{ env.repo_name }}/app/build/siyuan-${{ needs.create_release.outputs.version }}-${{ matrix.config.suffix }}
         asset_content_type: application/octet-stream

@@ -9,11 +9,11 @@ import {openNewWindowById} from "../window/openNewWindow";
 /// #endif
 /// #if !MOBILE
 import {moveResize} from "../dialog/moveResize";
+import {openFileById} from "../editor/util";
 /// #endif
 import {fetchPost} from "../util/fetch";
 import {showMessage} from "../dialog/message";
 import {App} from "../index";
-import {isMobile} from "../util/functions";
 import {resize} from "../protyle/util/resize";
 
 export class BlockPanel {
@@ -27,6 +27,8 @@ export class BlockPanel {
     public y: number;
     private isBacklink: boolean;
     public editors: Protyle[] = [];
+    private observerResize: ResizeObserver;
+    private observerLoad: IntersectionObserver;
 
     // x,y 和 targetElement 二选一必传
     constructor(options: {
@@ -118,6 +120,14 @@ export class BlockPanel {
                         /// #if !BROWSER
                         openNewWindowById(this.nodeIds[0]);
                         /// #endif
+                    } else if (type === "stickTab") {
+                        /// #if !BROWSER
+                        openFileById({
+                            app: options.app,
+                            id: this.nodeIds[0],
+                            action: this.editors[0].protyle.block.rootID !== this.nodeIds[0] ? [Constants.CB_GET_ALL, Constants.CB_GET_FOCUS] : [Constants.CB_GET_CONTEXT],
+                        });
+                        /// #endif
                     }
                     event.preventDefault();
                     event.stopPropagation();
@@ -127,12 +137,7 @@ export class BlockPanel {
             }
         });
         /// #if !MOBILE
-        moveResize(this.element, (type: string) => {
-            if (type !== "move") {
-                this.editors.forEach(item => {
-                    resize(item.protyle);
-                });
-            }
+        moveResize(this.element, () => {
             const pinElement = this.element.firstElementChild.querySelector('[data-type="pin"]');
             pinElement.setAttribute("aria-label", window.siyuan.languages.unpin);
             pinElement.querySelector("use").setAttribute("xlink:href", "#iconUnpin");
@@ -152,7 +157,7 @@ export class BlockPanel {
             if (!this.targetElement && typeof this.x === "undefined" && typeof this.y === "undefined") {
                 return;
             }
-            const action = [];
+            const action: TProtyleAction[] = [];
             if (response.data.rootID !== this.nodeIds[index]) {
                 action.push(Constants.CB_GET_ALL);
             } else {
@@ -174,9 +179,6 @@ export class BlockPanel {
                 },
                 typewriterMode: false,
                 after: (editor) => {
-                    editorElement.addEventListener("mouseleave", () => {
-                        hideElements(["gutter"], editor.protyle);
-                    });
                     if (response.data.rootID !== this.nodeIds[index]) {
                         editor.protyle.breadcrumb.element.parentElement.lastElementChild.classList.remove("fn__none");
                     }
@@ -189,7 +191,7 @@ export class BlockPanel {
                     }
                     // 由于 afterCB 中高度的设定，需在之后再进行设定
                     // 49 = 16（上图标）+16（下图标）+8（padding）+9（底部距离）
-                    editor.protyle.scroll.element.parentElement.setAttribute("style", `--b3-dynamicscroll-width:${Math.min(editor.protyle.contentElement.clientHeight - 49, 200)}px;${isMobile() ? "" : "right:10px"}`);
+                    editor.protyle.scroll.element.parentElement.setAttribute("style", `--b3-dynamicscroll-width:${Math.min(editor.protyle.contentElement.clientHeight - 49, 200)}px;`);
                 }
             });
             this.editors.push(editor);
@@ -197,6 +199,8 @@ export class BlockPanel {
     }
 
     public destroy() {
+        this.observerResize?.disconnect();
+        this.observerLoad?.disconnect();
         window.siyuan.blockPanels.find((item, index) => {
             if (item.id === this.id) {
                 window.siyuan.blockPanels.splice(index, 1);
@@ -231,7 +235,9 @@ export class BlockPanel {
         let openHTML = "";
         /// #if !BROWSER
         if (this.nodeIds.length === 1) {
-            openHTML = `<span data-type="open" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.openByNewWindow}"><svg><use xlink:href="#iconOpenWindow"></use></svg></span>
+            openHTML = `<span data-type="stickTab" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.openBy}"><svg><use xlink:href="#iconOpen"></use></svg></span>
+<span class="fn__space"></span>
+<span data-type="open" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.openByNewWindow}"><svg><use xlink:href="#iconOpenWindow"></use></svg></span>
 <span class="fn__space"></span>`;
         }
         /// #endif
@@ -239,7 +245,7 @@ export class BlockPanel {
     <span class="fn__space fn__flex-1 resize__move"></span>${openHTML}
     <span data-type="pin" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.pin}"><svg><use xlink:href="#iconPin"></use></svg></span>
     <span class="fn__space"></span>
-    <span data-type="close" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.close}"><svg style="width: 10px"><use xlink:href="#iconClose"></use></svg></span>
+    <span data-type="close" class="block__icon block__icon--show b3-tooltips b3-tooltips__sw" aria-label="${window.siyuan.languages.close}"><svg style="width: 12px;margin: 0 1px;"><use xlink:href="#iconClose"></use></svg></span>
 </div>
 <div class="block__content">`;
         if (this.nodeIds.length === 0) {
@@ -253,7 +259,17 @@ export class BlockPanel {
             html += '</div><div class="resize__rd"></div><div class="resize__ld"></div><div class="resize__lt"></div><div class="resize__rt"></div><div class="resize__r"></div><div class="resize__d"></div><div class="resize__t"></div><div class="resize__l"></div>';
         }
         this.element.innerHTML = html;
-        const observer = new IntersectionObserver((e) => {
+        let resizeTimeout: number;
+        this.observerResize = new ResizeObserver(() => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = window.setTimeout(() => {
+                this.editors.forEach(item => {
+                    resize(item.protyle);
+                });
+            }, Constants.TIMEOUT_TRANSITION);
+        });
+        this.observerResize.observe(this.element);
+        this.observerLoad = new IntersectionObserver((e) => {
             e.forEach(item => {
                 if (item.isIntersecting && item.target.innerHTML === "") {
                     this.initProtyle(item.target as HTMLElement);
@@ -312,7 +328,7 @@ export class BlockPanel {
                     this.element.style.zIndex = (++window.siyuan.zIndex).toString();
                 } : undefined);
             } else {
-                observer.observe(item);
+                this.observerLoad.observe(item);
             }
         });
         if (this.targetElement) {

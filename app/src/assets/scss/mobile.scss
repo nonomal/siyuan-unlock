@@ -27,6 +27,7 @@
 @import "business/custom";
 @import "business/av";
 @import "business/search";
+@import "business/emojis";
 
 .block__popover {
   width: 80vw;
@@ -52,12 +53,16 @@
       font-size: 18px;
       line-height: 32px;
       height: auto;
+
+      &:hover {
+        background-color: transparent;
+      }
     }
 
     &__graphic {
       width: 18px;
-      height: 40px;
-      line-height: 40px;
+      height: 18px;
+      line-height: 18px;
       font-size: 18px;
     }
 
@@ -418,6 +423,14 @@
   &__accelerator {
     display: none;
   }
+
+  &__item--warning {
+    color: var(--b3-theme-error);
+
+    & > .b3-menu__icon {
+      color: var(--b3-theme-error);
+    }
+  }
 }
 
 #historyContainer {
@@ -447,13 +460,6 @@
 }
 
 .protyle {
-  &-util {
-    .color__square {
-      height: 24px;
-      width: 24px;
-    }
-  }
-
   &-font {
     font-size: 14px;
   }
@@ -469,15 +475,10 @@
   &-background__img img {
     height: 200px;
   }
-}
 
-html .protyle-wysiwyg [data-node-id]:last-child [spellcheck][contenteditable="true"]:empty:before {
-  content: "Enter text";
-  color: var(--b3-empty-color);
-}
-
-html[lang="zh_CN"] .protyle-wysiwyg [data-node-id]:last-child [spellcheck][contenteditable="true"]:empty:before {
-  content: "键入文字";
+  &-scroll {
+    right: 0;
+  }
 }
 
 .av__views .block__icon {

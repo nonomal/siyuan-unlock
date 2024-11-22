@@ -19,11 +19,9 @@ package av
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
 
@@ -62,6 +60,26 @@ func (kValues *KeyValues) GetValue(blockID string) (ret *Value) {
 	return
 }
 
+func (kValues *KeyValues) GetBlockValue() (ret *Value) {
+	for _, v := range kValues.Values {
+		if KeyTypeBlock != v.Type {
+			ret = v
+			return
+		}
+	}
+	return
+}
+
+func GetKeyBlockValue(blockKeyValues []*KeyValues) (ret *Value) {
+	for _, kv := range blockKeyValues {
+		if KeyTypeBlock == kv.Key.Type && 0 < len(kv.Values) {
+			ret = kv.Values[0]
+			break
+		}
+	}
+	return
+}
+
 type KeyType string
 
 const (
@@ -84,12 +102,13 @@ const (
 	KeyTypeLineNumber KeyType = "lineNumber"
 )
 
-// Key 描述了属性视图属性列的基础结构。
+// Key 描述了属性视图属性字段的基础结构。
 type Key struct {
-	ID   string  `json:"id"`   // 列 ID
-	Name string  `json:"name"` // 列名
-	Type KeyType `json:"type"` // 列类型
-	Icon string  `json:"icon"` // 列图标
+	ID   string  `json:"id"`   // 字段 ID
+	Name string  `json:"name"` // 字段名
+	Type KeyType `json:"type"` // 字段类型
+	Icon string  `json:"icon"` // 字段图标
+	Desc string  `json:"desc"` // 字段描述
 
 	// 以下是某些列类型的特有属性
 
@@ -136,8 +155,8 @@ type Date struct {
 }
 
 type Rollup struct {
-	RelationKeyID string      `json:"relationKeyID"` // 关联列 ID
-	KeyID         string      `json:"keyID"`         // 目标列 ID
+	RelationKeyID string      `json:"relationKeyID"` // 关联字段 ID
+	KeyID         string      `json:"keyID"`         // 目标字段 ID
 	Calc          *RollupCalc `json:"calc"`          // 计算方式
 }
 
@@ -153,8 +172,9 @@ type Relation struct {
 }
 
 type SelectOption struct {
-	Name  string `json:"name"`
-	Color string `json:"color"`
+	Name  string `json:"name"`  // 选项名称
+	Color string `json:"color"` // 选项颜色
+	Desc  string `json:"desc"`  // 选项描述
 }
 
 // View 描述了视图的结构。
@@ -163,6 +183,7 @@ type View struct {
 	Icon             string `json:"icon"`             // 视图图标
 	Name             string `json:"name"`             // 视图名称
 	HideAttrViewName bool   `json:"hideAttrViewName"` // 是否隐藏属性视图名称
+	Desc             string `json:"desc"`             // 视图描述
 
 	LayoutType LayoutType   `json:"type"`            // 当前布局类型
 	Table      *LayoutTable `json:"table,omitempty"` // 表格布局
@@ -246,7 +267,7 @@ func GetAttributeViewName(avID string) (ret string, err error) {
 
 func GetAttributeViewNameByPath(avJSONPath string) (ret string, err error) {
 	data, err := filelock.ReadFile(avJSONPath)
-	if nil != err {
+	if err != nil {
 		logging.LogErrorf("read attribute view [%s] failed: %s", avJSONPath, err)
 		return
 	}
@@ -278,10 +299,10 @@ func ParseAttributeView(avID string) (ret *AttributeView, err error) {
 	}
 
 	ret = &AttributeView{}
-	if err = gulu.JSON.UnmarshalJSON(data, ret); nil != err {
+	if err = gulu.JSON.UnmarshalJSON(data, ret); err != nil {
 		if strings.Contains(err.Error(), ".relation.contents of type av.Value") {
 			mapAv := map[string]interface{}{}
-			if err = gulu.JSON.UnmarshalJSON(data, &mapAv); nil != err {
+			if err = gulu.JSON.UnmarshalJSON(data, &mapAv); err != nil {
 				logging.LogErrorf("unmarshal attribute view [%s] failed: %s", avID, err)
 				return
 			}
@@ -320,12 +341,12 @@ func ParseAttributeView(avID string) (ret *AttributeView, err error) {
 			}
 
 			data, err = gulu.JSON.MarshalJSON(mapAv)
-			if nil != err {
+			if err != nil {
 				logging.LogErrorf("marshal attribute view [%s] failed: %s", avID, err)
 				return
 			}
 
-			if err = gulu.JSON.UnmarshalJSON(data, ret); nil != err {
+			if err = gulu.JSON.UnmarshalJSON(data, ret); err != nil {
 				logging.LogErrorf("unmarshal attribute view [%s] failed: %s", avID, err)
 				return
 			}
@@ -506,13 +527,13 @@ func SaveAttributeView(av *AttributeView) (err error) {
 	} else {
 		data, err = gulu.JSON.MarshalIndentJSON(av, "", "\t")
 	}
-	if nil != err {
+	if err != nil {
 		logging.LogErrorf("marshal attribute view [%s] failed: %s", av.ID, err)
 		return
 	}
 
 	avJSONPath := GetAttributeViewDataPath(av.ID)
-	if err = filelock.WriteFile(avJSONPath, data); nil != err {
+	if err = filelock.WriteFile(avJSONPath, data); err != nil {
 		logging.LogErrorf("save attribute view [%s] failed: %s", av.ID, err)
 		return
 	}
@@ -624,28 +645,14 @@ func (av *AttributeView) GetBlockKey() (ret *Key) {
 	return
 }
 
-func (av *AttributeView) GetDuplicateViewName(masterViewName string) (ret string) {
-	ret = masterViewName + " (1)"
-	r := regexp.MustCompile("^(.*) \\((\\d+)\\)$")
-	m := r.FindStringSubmatch(masterViewName)
-	if nil == m || 3 > len(m) {
-		return
-	}
-
-	num, _ := strconv.Atoi(m[2])
-	num++
-	ret = fmt.Sprintf("%s (%d)", m[1], num)
-	return
-}
-
 func (av *AttributeView) ShallowClone() (ret *AttributeView) {
 	ret = &AttributeView{}
 	data, err := gulu.JSON.MarshalJSON(av)
-	if nil != err {
+	if err != nil {
 		logging.LogErrorf("marshal attribute view [%s] failed: %s", av.ID, err)
 		return nil
 	}
-	if err = gulu.JSON.UnmarshalJSON(data, ret); nil != err {
+	if err = gulu.JSON.UnmarshalJSON(data, ret); err != nil {
 		logging.LogErrorf("unmarshal attribute view [%s] failed: %s", av.ID, err)
 		return nil
 	}
@@ -656,13 +663,24 @@ func (av *AttributeView) ShallowClone() (ret *AttributeView) {
 		return nil
 	}
 
+	var oldKeyIDs []string
 	keyIDMap := map[string]string{}
 	for _, kv := range ret.KeyValues {
 		newID := ast.NewNodeID()
 		keyIDMap[kv.Key.ID] = newID
+		oldKeyIDs = append(oldKeyIDs, kv.Key.ID)
 		kv.Key.ID = newID
 		kv.Values = []*Value{}
 	}
+
+	oldKeyIDs = gulu.Str.RemoveDuplicatedElem(oldKeyIDs)
+	sorts := map[string]int{}
+	for i, k := range ret.KeyIDs {
+		sorts[k] = i
+	}
+	sort.Slice(oldKeyIDs, func(i, j int) bool {
+		return sorts[oldKeyIDs[i]] < sorts[oldKeyIDs[j]]
+	})
 
 	for _, view := range ret.Views {
 		view.ID = ast.NewNodeID()
@@ -680,6 +698,12 @@ func (av *AttributeView) ShallowClone() (ret *AttributeView) {
 		}
 	}
 	ret.ViewID = ret.Views[0].ID
+
+	ret.KeyIDs = nil
+	for _, oldKeyID := range oldKeyIDs {
+		newKeyID := keyIDMap[oldKeyID]
+		ret.KeyIDs = append(ret.KeyIDs, newKeyID)
+	}
 	return
 }
 
@@ -687,7 +711,7 @@ func GetAttributeViewDataPath(avID string) (ret string) {
 	av := filepath.Join(util.DataDir, "storage", "av")
 	ret = filepath.Join(av, avID+".json")
 	if !gulu.File.IsDir(av) {
-		if err := os.MkdirAll(av, 0755); nil != err {
+		if err := os.MkdirAll(av, 0755); err != nil {
 			logging.LogErrorf("create attribute view dir failed: %s", err)
 			return
 		}

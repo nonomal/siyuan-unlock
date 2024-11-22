@@ -74,7 +74,7 @@ func moveOutlineHeading(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
@@ -99,7 +99,7 @@ func appendDailyNoteBlock(c *gin.Context) {
 		luteEngine := util.NewLute()
 		var err error
 		data, err = dataBlockDOM(data, luteEngine)
-		if nil != err {
+		if err != nil {
 			ret.Code = -1
 			ret.Msg = "data block DOM failed: " + err.Error()
 			return
@@ -107,7 +107,7 @@ func appendDailyNoteBlock(c *gin.Context) {
 	}
 
 	p, _, err := model.CreateDailyNote(boxID)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = "create daily note failed: " + err.Error()
 		return
@@ -127,7 +127,7 @@ func appendDailyNoteBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
@@ -152,7 +152,7 @@ func prependDailyNoteBlock(c *gin.Context) {
 		luteEngine := util.NewLute()
 		var err error
 		data, err = dataBlockDOM(data, luteEngine)
-		if nil != err {
+		if err != nil {
 			ret.Code = -1
 			ret.Msg = "data block DOM failed: " + err.Error()
 			return
@@ -160,7 +160,7 @@ func prependDailyNoteBlock(c *gin.Context) {
 	}
 
 	p, _, err := model.CreateDailyNote(boxID)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = "create daily note failed: " + err.Error()
 		return
@@ -180,7 +180,7 @@ func prependDailyNoteBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
@@ -241,7 +241,7 @@ func unfoldBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	broadcastTransactions(transactions)
 }
@@ -301,7 +301,7 @@ func foldBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	broadcastTransactions(transactions)
 }
@@ -355,7 +355,7 @@ func moveBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
@@ -380,7 +380,7 @@ func appendBlock(c *gin.Context) {
 		luteEngine := util.NewLute()
 		var err error
 		data, err = dataBlockDOM(data, luteEngine)
-		if nil != err {
+		if err != nil {
 			ret.Code = -1
 			ret.Msg = "data block DOM failed: " + err.Error()
 			return
@@ -400,7 +400,7 @@ func appendBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
@@ -425,7 +425,7 @@ func prependBlock(c *gin.Context) {
 		luteEngine := util.NewLute()
 		var err error
 		data, err = dataBlockDOM(data, luteEngine)
-		if nil != err {
+		if err != nil {
 			ret.Code = -1
 			ret.Msg = "data block DOM failed: " + err.Error()
 			return
@@ -445,7 +445,7 @@ func prependBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
@@ -486,7 +486,7 @@ func insertBlock(c *gin.Context) {
 		luteEngine := util.NewLute()
 		var err error
 		data, err = dataBlockDOM(data, luteEngine)
-		if nil != err {
+		if err != nil {
 			ret.Code = -1
 			ret.Msg = "data block DOM failed: " + err.Error()
 			return
@@ -508,7 +508,7 @@ func insertBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
@@ -534,7 +534,7 @@ func updateBlock(c *gin.Context) {
 	if "markdown" == dataType {
 		var err error
 		data, err = dataBlockDOM(data, luteEngine)
-		if nil != err {
+		if err != nil {
 			ret.Code = -1
 			ret.Msg = "data block DOM failed: " + err.Error()
 			return
@@ -548,7 +548,7 @@ func updateBlock(c *gin.Context) {
 	}
 
 	block, err := model.GetBlock(id, nil)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = "get block failed: " + err.Error()
 		return
@@ -557,7 +557,7 @@ func updateBlock(c *gin.Context) {
 	var transactions []*model.Transaction
 	if "NodeDocument" == block.Type {
 		oldTree, err := filesys.LoadTree(block.Box, block.Path, luteEngine)
-		if nil != err {
+		if err != nil {
 			ret.Code = -1
 			ret.Msg = "load tree failed: " + err.Error()
 			return
@@ -599,7 +599,7 @@ func updateBlock(c *gin.Context) {
 	}
 
 	model.PerformTransactions(&transactions)
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 
 	ret.Data = transactions
 	broadcastTransactions(transactions)
@@ -648,7 +648,7 @@ func dataBlockDOM(data string, luteEngine *lute.Lute) (ret string, err error) {
 	ret, tree := luteEngine.Md2BlockDOMTree(data, true)
 	if "" == ret {
 		// 使用 API 插入空字符串出现错误 https://github.com/siyuan-note/siyuan/issues/3931
-		blankParagraph := treenode.NewParagraph()
+		blankParagraph := treenode.NewParagraph("")
 		ret = luteEngine.RenderNodeBlockDOM(blankParagraph)
 	}
 

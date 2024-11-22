@@ -11,6 +11,9 @@ export const resize = (protyle: IProtyle) => {
     const MIN_ABS = 4;
     // 不能 clearTimeout，否则 split 时左侧无法 resize
     setTimeout(() => {
+        if (protyle.scroll && protyle.scroll.element.parentElement.getAttribute("style")) {
+            protyle.scroll.element.parentElement.setAttribute("style", `--b3-dynamicscroll-width:${Math.min(protyle.contentElement.clientHeight - 49, 200)}px`);
+        }
         if (!protyle.disabled) {
             const contentRect = protyle.contentElement.getBoundingClientRect();
             protyle.wysiwyg.element.querySelectorAll(".av").forEach((item: HTMLElement) => {
@@ -28,11 +31,9 @@ export const resize = (protyle: IProtyle) => {
                     }
                 });
             }
-            protyle.wysiwyg.element.querySelectorAll(".code-block .protyle-linenumber").forEach((block: HTMLElement) => {
-                if ((window.siyuan.config.editor.codeSyntaxHighlightLineNum && block.parentElement.getAttribute("lineNumber") !== "false" &&
-                        window.siyuan.config.editor.codeLineWrap && block.parentElement.getAttribute("linewrap") !== "false") ||
-                    (block.parentElement.getAttribute("lineNumber") === "true" && block.parentElement.getAttribute("linewrap") === "true")) {
-                    lineNumberRender(block);
+            protyle.wysiwyg.element.querySelectorAll(".code-block .protyle-linenumber__rows").forEach((item: HTMLElement) => {
+                if ((item.nextElementSibling as HTMLElement).style.wordBreak === "break-word") {
+                    lineNumberRender(item.parentElement);
                 }
             });
             // 保持光标位置不变 https://ld246.com/article/1673704873983/comment/1673765814595#comments

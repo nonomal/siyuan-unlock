@@ -21,6 +21,7 @@ import {exportImage} from "../protyle/export/util";
 import {App} from "../index";
 import {renderAVAttribute} from "../protyle/render/av/blockAttr";
 import {openAssetNewWindow} from "../window/openNewWindow";
+import {escapeHtml} from "../util/escape";
 
 const bindAttrInput = (inputElement: HTMLInputElement, id: string) => {
     inputElement.addEventListener("change", () => {
@@ -326,7 +327,7 @@ export const openFileAttr = (attrs: IObject, focusName = "bookmark", protyle?: I
                 });
                 btnsElement[1].addEventListener("click", () => {
                     if (!isValidAttrName(inputElement.value)) {
-                        showMessage(window.siyuan.languages.attrName + " <b>" + inputElement.value + "</b> " + window.siyuan.languages.invalid);
+                        showMessage(window.siyuan.languages.attrName + " <b>" + escapeHtml(inputElement.value) + "</b> " + window.siyuan.languages.invalid);
                         return false;
                     }
                     target.parentElement.insertAdjacentHTML("beforebegin", `<div class="b3-label b3-label--noborder">
@@ -372,7 +373,8 @@ export const openAttr = (nodeElement: Element, focusName = "bookmark", protyle?:
 
 export const copySubMenu = (id: string, accelerator = true, focusElement?: Element) => {
     return [{
-        icon: "iconRef",
+        id: "copyBlockRef",
+        iconHTML: "",
         accelerator: accelerator ? window.siyuan.config.keymap.editor.general.copyBlockRef.custom : undefined,
         label: window.siyuan.languages.copyBlockRef,
         click: () => {
@@ -384,7 +386,8 @@ export const copySubMenu = (id: string, accelerator = true, focusElement?: Eleme
             }
         }
     }, {
-        icon: "iconSQL",
+        id: "copyBlockEmbed",
+        iconHTML: "",
         label: window.siyuan.languages.copyBlockEmbed,
         accelerator: accelerator ? window.siyuan.config.keymap.editor.general.copyBlockEmbed.custom : undefined,
         click: () => {
@@ -394,7 +397,8 @@ export const copySubMenu = (id: string, accelerator = true, focusElement?: Eleme
             }
         }
     }, {
-        icon: "iconSiYuan",
+        id: "copyProtocol",
+        iconHTML: "",
         label: window.siyuan.languages.copyProtocol,
         accelerator: accelerator ? window.siyuan.config.keymap.editor.general.copyProtocol.custom : undefined,
         click: () => {
@@ -404,6 +408,8 @@ export const copySubMenu = (id: string, accelerator = true, focusElement?: Eleme
             }
         }
     }, {
+        id: "copyProtocolInMd",
+        iconHTML: "",
         label: window.siyuan.languages.copyProtocolInMd,
         accelerator: accelerator ? window.siyuan.config.keymap.editor.general.copyProtocolInMd.custom : undefined,
         click: () => {
@@ -415,6 +421,8 @@ export const copySubMenu = (id: string, accelerator = true, focusElement?: Eleme
             }
         }
     }, {
+        id: "copyHPath",
+        iconHTML: "",
         label: window.siyuan.languages.copyHPath,
         accelerator: accelerator ? window.siyuan.config.keymap.editor.general.copyHPath.custom : undefined,
         click: () => {
@@ -425,6 +433,8 @@ export const copySubMenu = (id: string, accelerator = true, focusElement?: Eleme
             });
         }
     }, {
+        id: "copyID",
+        iconHTML: "",
         label: window.siyuan.languages.copyID,
         accelerator: accelerator ? window.siyuan.config.keymap.editor.general.copyID.custom : undefined,
         click: () => {
@@ -437,11 +447,16 @@ export const copySubMenu = (id: string, accelerator = true, focusElement?: Eleme
 };
 
 export const exportMd = (id: string) => {
+    if (window.siyuan.isPublish) {
+        return;
+    }
     return new MenuItem({
+        id: "export",
         label: window.siyuan.languages.export,
         type: "submenu",
         icon: "iconUpload",
         submenu: [{
+            id: "exportTemplate",
             label: window.siyuan.languages.template,
             iconClass: "ft__error",
             icon: "iconMarkdown",
@@ -511,6 +526,7 @@ export const exportMd = (id: string) => {
                 });
             }
         }, {
+            id: "exportMarkdown",
             label: "Markdown",
             icon: "iconMarkdown",
             click: () => {
@@ -523,6 +539,7 @@ export const exportMd = (id: string) => {
                 });
             }
         }, {
+            id: "exportSiYuanZip",
             label: "SiYuan .sy.zip",
             icon: "iconSiYuan",
             click: () => {
@@ -535,6 +552,7 @@ export const exportMd = (id: string) => {
                 });
             }
         }, {
+            id: "exportImage",
             label: window.siyuan.languages.image,
             icon: "iconImage",
             click: () => {
@@ -543,12 +561,14 @@ export const exportMd = (id: string) => {
         },
             /// #if !BROWSER
             {
+                id: "exportPDF",
                 label: "PDF",
                 icon: "iconPDF",
                 click: () => {
                     saveExport({type: "pdf", id});
                 }
             }, {
+                id: "exportHTML_SiYuan",
                 label: "HTML (SiYuan)",
                 iconClass: "ft__error",
                 icon: "iconHTML5",
@@ -556,22 +576,26 @@ export const exportMd = (id: string) => {
                     saveExport({type: "html", id});
                 }
             }, {
+                id: "exportHTML_Markdown",
                 label: "HTML (Markdown)",
                 icon: "iconHTML5",
                 click: () => {
                     saveExport({type: "htmlmd", id});
                 }
             }, {
+                id: "exportWord",
                 label: "Word .docx",
                 icon: "iconExact",
                 click: () => {
                     saveExport({type: "word", id});
                 }
             }, {
+                id: "exportMore",
                 label: window.siyuan.languages.more,
                 icon: "iconMore",
                 type: "submenu",
                 submenu: [{
+                    id: "exportReStructuredText",
                     label: "reStructuredText",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -583,6 +607,7 @@ export const exportMd = (id: string) => {
                         });
                     }
                 }, {
+                    id: "exportAsciiDoc",
                     label: "AsciiDoc",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -594,6 +619,7 @@ export const exportMd = (id: string) => {
                         });
                     }
                 }, {
+                    id: "exportTextile",
                     label: "Textile",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -605,6 +631,7 @@ export const exportMd = (id: string) => {
                         });
                     }
                 }, {
+                    id: "exportOPML",
                     label: "OPML",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -616,6 +643,7 @@ export const exportMd = (id: string) => {
                         });
                     }
                 }, {
+                    id: "exportOrgMode",
                     label: "Org-Mode",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -627,6 +655,7 @@ export const exportMd = (id: string) => {
                         });
                     }
                 }, {
+                    id: "exportMediaWiki",
                     label: "MediaWiki",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -638,6 +667,7 @@ export const exportMd = (id: string) => {
                         });
                     }
                 }, {
+                    id: "exportODT",
                     label: "ODT",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -649,6 +679,7 @@ export const exportMd = (id: string) => {
                         });
                     }
                 }, {
+                    id: "exportRTF",
                     label: "RTF",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -660,6 +691,7 @@ export const exportMd = (id: string) => {
                         });
                     }
                 }, {
+                    id: "exportEPUB",
                     label: "EPUB",
                     click: () => {
                         const msgId = showMessage(window.siyuan.languages.exporting, -1);
@@ -805,6 +837,7 @@ export const renameMenu = (options: {
     type: "notebook" | "file"
 }) => {
     return new MenuItem({
+        id: "rename",
         accelerator: window.siyuan.config.keymap.editor.general.rename.custom,
         icon: "iconEdit",
         label: window.siyuan.languages.rename,
@@ -816,6 +849,7 @@ export const renameMenu = (options: {
 
 export const movePathToMenu = (paths: string[]) => {
     return new MenuItem({
+        id: "move",
         label: window.siyuan.languages.move,
         icon: "iconMove",
         accelerator: window.siyuan.config.keymap.general.move.custom,

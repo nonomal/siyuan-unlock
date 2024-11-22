@@ -55,7 +55,7 @@ func listDocTree(c *gin.Context) {
 	var doctree []*DocFile
 	root := filepath.Join(util.WorkspaceDir, "data", notebook, p)
 	dir, err := os.ReadDir(root)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -77,7 +77,7 @@ func listDocTree(c *gin.Context) {
 			doctree = append(doctree, parent)
 
 			subPath := filepath.Join(root, entry.Name())
-			if err = walkDocTree(subPath, parent, &ids); nil != err {
+			if err = walkDocTree(subPath, parent, &ids); err != nil {
 				ret.Code = -1
 				ret.Msg = err.Error()
 				return
@@ -103,7 +103,7 @@ type DocFile struct {
 
 func walkDocTree(p string, docFile *DocFile, ids *map[string]bool) (err error) {
 	dir, err := os.ReadDir(p)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -122,7 +122,7 @@ func walkDocTree(p string, docFile *DocFile, ids *map[string]bool) (err error) {
 			docFile.Children = append(docFile.Children, parent)
 
 			subPath := filepath.Join(p, entry.Name())
-			if err = walkDocTree(subPath, parent, ids); nil != err {
+			if err = walkDocTree(subPath, parent, ids); err != nil {
 				return
 			}
 		} else {
@@ -190,7 +190,7 @@ func doc2Heading(c *gin.Context) {
 	targetID := arg["targetID"].(string)
 	after := arg["after"].(bool)
 	srcTreeBox, srcTreePath, err := model.Doc2Heading(srcID, targetID, after)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 5000}
@@ -216,17 +216,17 @@ func heading2Doc(c *gin.Context) {
 	targetNotebook := arg["targetNoteBook"].(string)
 	targetPath := arg["targetPath"].(string)
 	srcRootBlockID, targetPath, err := model.Heading2Doc(srcHeadingID, targetNotebook, targetPath)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 5000}
 		return
 	}
 
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 	luteEngine := util.NewLute()
 	tree, err := filesys.LoadTree(targetNotebook, targetPath, luteEngine)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -261,17 +261,17 @@ func li2Doc(c *gin.Context) {
 	targetNotebook := arg["targetNoteBook"].(string)
 	targetPath := arg["targetPath"].(string)
 	srcRootBlockID, targetPath, err := model.ListItem2Doc(srcListItemID, targetNotebook, targetPath)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 5000}
 		return
 	}
 
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 	luteEngine := util.NewLute()
 	tree, err := filesys.LoadTree(targetNotebook, targetPath, luteEngine)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -310,7 +310,7 @@ func getHPathByPath(c *gin.Context) {
 	p := arg["path"].(string)
 
 	hPath, err := model.GetHPathByPath(notebook, p)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -333,7 +333,7 @@ func getHPathsByPaths(c *gin.Context) {
 		paths = append(paths, p.(string))
 	}
 	hPath, err := model.GetHPathsByPaths(paths)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -356,12 +356,35 @@ func getHPathByID(c *gin.Context) {
 	}
 
 	hPath, err := model.GetHPathByID(id)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
 	}
 	ret.Data = hPath
+}
+
+func getPathByID(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	id := arg["id"].(string)
+	if util.InvalidIDPattern(id, ret) {
+		return
+	}
+
+	_path, err := model.GetPathByID(id)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
+	ret.Data = _path
 }
 
 func getFullHPathByID(c *gin.Context) {
@@ -378,7 +401,7 @@ func getFullHPathByID(c *gin.Context) {
 
 	id := arg["id"].(string)
 	hPath, err := model.GetFullHPathByID(id)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -408,7 +431,7 @@ func getIDsByHPath(c *gin.Context) {
 
 	p := arg["path"].(string)
 	ids, err := model.GetIDsByHPath(p, notebook)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -439,7 +462,7 @@ func moveDocs(c *gin.Context) {
 	callback := arg["callback"]
 
 	err := model.MoveDocs(fromPaths, toNotebook, toPath, callback)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 7000}
@@ -500,12 +523,43 @@ func renameDoc(c *gin.Context) {
 	title := arg["title"].(string)
 
 	err := model.RenameDoc(notebook, p, title)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
 	}
 	return
+}
+
+func renameDocByID(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+	if nil == arg["id"] {
+		return
+	}
+
+	id := arg["id"].(string)
+	title := arg["title"].(string)
+
+	tree, err := model.LoadTreeByBlockID(id)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		ret.Data = map[string]interface{}{"closeTimeout": 7000}
+		return
+	}
+
+	err = model.RenameDoc(tree.Box, tree.Path, title)
+	if err != nil {
+		ret.Code = -1
+		ret.Msg = err.Error()
+		return
+	}
 }
 
 func duplicateDoc(c *gin.Context) {
@@ -519,7 +573,7 @@ func duplicateDoc(c *gin.Context) {
 
 	id := arg["id"].(string)
 	tree, err := model.LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 7000}
@@ -561,14 +615,14 @@ func createDoc(c *gin.Context) {
 	}
 
 	tree, err := model.CreateDocByMd(notebook, p, title, md, sorts)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 7000}
 		return
 	}
 
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 	box := model.Conf.Box(notebook)
 	pushCreate(box, p, tree.Root.ID, arg)
 
@@ -588,7 +642,7 @@ func createDailyNote(c *gin.Context) {
 
 	notebook := arg["notebook"].(string)
 	p, existed, err := model.CreateDailyNote(notebook)
-	if nil != err {
+	if err != nil {
 		if model.ErrBoxNotFound == err {
 			ret.Code = 1
 		} else {
@@ -598,11 +652,11 @@ func createDailyNote(c *gin.Context) {
 		return
 	}
 
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 	box := model.Conf.Box(notebook)
 	luteEngine := util.NewLute()
 	tree, err := filesys.LoadTree(box.ID, p, luteEngine)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -650,6 +704,12 @@ func createDocWithMd(c *gin.Context) {
 		return
 	}
 
+	tagsArg := arg["tags"]
+	var tags string
+	if nil != tagsArg {
+		tags = tagsArg.(string)
+	}
+
 	var parentID string
 	parentIDArg := arg["parentID"]
 	if nil != parentIDArg {
@@ -682,16 +742,21 @@ func createDocWithMd(c *gin.Context) {
 	if nil != withMathArg {
 		withMath = withMathArg.(bool)
 	}
+	clippingHref := ""
+	clippingHrefArg := arg["clippingHref"]
+	if nil != clippingHrefArg {
+		clippingHref = clippingHrefArg.(string)
+	}
 
-	id, err := model.CreateWithMarkdown(notebook, hPath, markdown, parentID, id, withMath)
-	if nil != err {
+	id, err := model.CreateWithMarkdown(tags, notebook, hPath, markdown, parentID, id, withMath, clippingHref)
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
 	}
 	ret.Data = id
 
-	model.WaitForWritingFiles()
+	model.FlushTxQueue()
 	box := model.Conf.Box(notebook)
 	b, _ := model.GetBlock(id, nil)
 	p := b.Path
@@ -741,7 +806,7 @@ func getDocCreateSavePath(c *gin.Context) {
 	}
 
 	docCreateSavePath, err := model.RenderGoTemplate(docCreateSavePathTpl)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -795,7 +860,7 @@ func getRefCreateSavePath(c *gin.Context) {
 	}
 
 	refCreateSavePath, err := model.RenderGoTemplate(refCreateSavePathTpl)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -876,7 +941,7 @@ func listDocsByPath(c *gin.Context) {
 	}
 
 	files, totals, err := model.ListDocTree(notebook, p, sortMode, flashcard, showHidden, maxListCount)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -960,7 +1025,7 @@ func getDoc(c *gin.Context) {
 		return
 	}
 
-	if nil != err {
+	if err != nil {
 		ret.Code = 1
 		ret.Msg = err.Error()
 		return

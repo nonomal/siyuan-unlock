@@ -15,7 +15,7 @@ import {isWindow} from "../../../util/functions";
 import {openRecentDocs} from "../../../business/openRecentDocs";
 import {openSearch} from "../../../search/spread";
 import {goBack, goForward} from "../../../util/backForward";
-import {getAllTabs} from "../../../layout/getAll";
+import {getAllTabs, getAllWnds} from "../../../layout/getAll";
 import {getInstanceById} from "../../../layout/util";
 import {
     closeTabByType,
@@ -39,12 +39,14 @@ import {lockScreen} from "../../../dialog/processSystem";
 import {newFile} from "../../../util/newFile";
 import {openCard} from "../../../card/openCard";
 import {syncGuide} from "../../../sync/syncGuide";
+import {Wnd} from "../../../layout/Wnd";
+import {unsplitWnd} from "../../../menus/tab";
 
 const selectOpenTab = () => {
     /// #if MOBILE
     if (window.siyuan.mobile.editor?.protyle) {
         openDock("file");
-        window.siyuan.mobile.files.selectItem(window.siyuan.mobile.editor.protyle.notebookId, window.siyuan.mobile.editor.protyle.path);
+        window.siyuan.mobile.docks.file.selectItem(window.siyuan.mobile.editor.protyle.notebookId, window.siyuan.mobile.editor.protyle.path);
     }
     /// #else
     const dockFile = getDockByType("file");
@@ -234,13 +236,36 @@ export const globalCommand = (command: string, app: App) => {
         }
         return true;
     }
+    if (command === "unsplitAll") {
+        unsplitWnd(window.siyuan.layout.centerLayout, window.siyuan.layout.centerLayout, false);
+        return true;
+    }
+    if (command === "unsplit") {
+        const tab = getActiveTab(false);
+        if (tab) {
+            let wndsTemp: Wnd[] = [];
+            let layout = tab.parent.parent;
+            while (layout.id !== window.siyuan.layout.centerLayout.id) {
+                wndsTemp = [];
+                getAllWnds(layout, wndsTemp);
+                if (wndsTemp.length > 1) {
+                    break;
+                } else {
+                    layout = layout.parent;
+                }
+            }
+            unsplitWnd(tab.parent.parent.children[0], layout, true);
+            resizeTabs();
+        }
+        return true;
+    }
     if (command === "closeTab") {
         const activeTabElement = document.querySelector(".layout__tab--active");
         if (activeTabElement && activeTabElement.getBoundingClientRect().width > 0) {
-            let type = "";
+            let type: TDock;
             Array.from(activeTabElement.classList).find(item => {
                 if (item.startsWith("sy__")) {
-                    type = item.replace("sy__", "");
+                    type = item.replace("sy__", "") as TDock;
                     return true;
                 }
             });

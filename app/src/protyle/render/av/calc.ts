@@ -108,6 +108,9 @@ export const openCalcMenu = async (protyle: IProtyle, calcElement: HTMLElement, 
         oldOperator = calcElement.dataset.operator;
         blockID = blockElement.dataset.nodeId;
     }
+    if (type === "lineNumber") {
+        return;
+    }
     const menu = new Menu("av-calc", () => {
         if (rowElement) {
             rowElement.classList.remove("av__row--show");
@@ -145,28 +148,6 @@ export const openCalcMenu = async (protyle: IProtyle, calcElement: HTMLElement, 
             colId,
             avId,
             oldOperator,
-            operator: "Count values",
-            data: panelData?.data,
-            blockID,
-            target: calcElement
-        });
-        calcItem({
-            menu,
-            protyle,
-            colId,
-            avId,
-            oldOperator,
-            operator: "Count unique values",
-            data: panelData?.data,
-            blockID,
-            target: calcElement
-        });
-        calcItem({
-            menu,
-            protyle,
-            colId,
-            avId,
-            oldOperator,
             operator: "Count empty",
             data: panelData?.data,
             blockID,
@@ -179,6 +160,28 @@ export const openCalcMenu = async (protyle: IProtyle, calcElement: HTMLElement, 
             avId,
             oldOperator,
             operator: "Count not empty",
+            data: panelData?.data,
+            blockID,
+            target: calcElement
+        });
+        calcItem({
+            menu,
+            protyle,
+            colId,
+            avId,
+            oldOperator,
+            operator: "Count values",
+            data: panelData?.data,
+            blockID,
+            target: calcElement
+        });
+        calcItem({
+            menu,
+            protyle,
+            colId,
+            avId,
+            oldOperator,
+            operator: "Count unique values",
             data: panelData?.data,
             blockID,
             target: calcElement

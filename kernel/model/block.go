@@ -17,15 +17,17 @@
 package model
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/88250/gulu"
 	"github.com/88250/lute/ast"
 	"github.com/88250/lute/parse"
-	"github.com/open-spaced-repetition/go-fsrs"
+	"github.com/open-spaced-repetition/go-fsrs/v3"
 	"github.com/siyuan-note/siyuan/kernel/filesys"
 	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
@@ -128,26 +130,8 @@ type BlockTreeInfo struct {
 
 func GetBlockTreeInfos(ids []string) (ret map[string]*BlockTreeInfo) {
 	ret = map[string]*BlockTreeInfo{}
-	luteEngine := util.NewLute()
-	treeCache := map[string]*parse.Tree{}
-	for _, id := range ids {
-		bt := treenode.GetBlockTree(id)
-		if nil == bt {
-			ret[id] = &BlockTreeInfo{ID: id}
-			continue
-		}
-
-		tree := treeCache[bt.RootID]
-		if nil == tree {
-			tree, _ = filesys.LoadTree(bt.BoxID, bt.Path, luteEngine)
-			if nil == tree {
-				ret[id] = &BlockTreeInfo{ID: id}
-				continue
-			}
-
-			treeCache[bt.RootID] = tree
-		}
-
+	trees := filesys.LoadTrees(ids)
+	for id, tree := range trees {
 		node := treenode.GetNodeInTree(tree, id)
 		if nil == node {
 			ret[id] = &BlockTreeInfo{ID: id}
@@ -177,7 +161,7 @@ func GetBlockTreeInfos(ids []string) (ret map[string]*BlockTreeInfo) {
 
 func GetBlockSiblingID(id string) (parent, previous, next string) {
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -268,26 +252,53 @@ func GetBlockSiblingID(id string) (parent, previous, next string) {
 	return
 }
 
-func IsBlockFolded(id string) bool {
+func IsBlockFolded(id string) (isFolded, isRoot bool) {
+	tree, _ := LoadTreeByBlockID(id)
+	if nil == tree {
+		return
+	}
+
+	if tree.Root.ID == id {
+		isRoot = true
+	}
+
 	for i := 0; i < 32; i++ {
 		b, _ := getBlock(id, nil)
 		if nil == b {
-			return false
+			return
 		}
 
 		if "1" == b.IAL["fold"] {
-			return true
+			isFolded = true
+			return
 		}
 
 		id = b.ParentID
+
 	}
-	return false
+	return
 }
 
 func RecentUpdatedBlocks() (ret []*Block) {
 	ret = []*Block{}
 
-	sqlBlocks := sql.QueryRecentUpdatedBlocks()
+	sqlStmt := "SELECT * FROM blocks WHERE type = 'p' AND length > 1"
+	if util.ContainerIOS == util.Container || util.ContainerAndroid == util.Container {
+		sqlStmt = "SELECT * FROM blocks WHERE type = 'd'"
+	}
+
+	if ignoreLines := getSearchIgnoreLines(); 0 < len(ignoreLines) {
+		// Support ignore search results https://github.com/siyuan-note/siyuan/issues/10089
+		buf := bytes.Buffer{}
+		for _, line := range ignoreLines {
+			buf.WriteString(" AND ")
+			buf.WriteString(line)
+		}
+		sqlStmt += buf.String()
+	}
+
+	sqlStmt += " ORDER BY updated DESC"
+	sqlBlocks := sql.SelectBlocksRawStmt(sqlStmt, 1, 16)
 	if 1 > len(sqlBlocks) {
 		return
 	}
@@ -314,11 +325,13 @@ func TransferBlockRef(fromID, toID string, refIDs []string) (err error) {
 	if 1 > len(refIDs) { // 如果不指定 refIDs，则转移所有引用了 fromID 的块
 		refIDs, _ = sql.QueryRefIDsByDefID(fromID, false)
 	}
-	for _, refID := range refIDs {
-		tree, _ := LoadTreeByBlockID(refID)
+
+	trees := filesys.LoadTrees(refIDs)
+	for refID, tree := range trees {
 		if nil == tree {
 			continue
 		}
+
 		node := treenode.GetNodeInTree(tree, refID)
 		textMarks := node.ChildrenByType(ast.NodeTextMark)
 		for _, textMark := range textMarks {
@@ -330,18 +343,18 @@ func TransferBlockRef(fromID, toID string, refIDs []string) (err error) {
 			}
 		}
 
-		if err = indexWriteTreeUpsertQueue(tree); nil != err {
+		if err = indexWriteTreeUpsertQueue(tree); err != nil {
 			return
 		}
 	}
 
-	sql.WaitForWritingDatabase()
+	sql.FlushQueue()
 	return
 }
 
 func SwapBlockRef(refID, defID string, includeChildren bool) (err error) {
 	refTree, err := LoadTreeByBlockID(refID)
-	if nil != err {
+	if err != nil {
 		return
 	}
 	refNode := treenode.GetNodeInTree(refTree, refID)
@@ -352,7 +365,7 @@ func SwapBlockRef(refID, defID string, includeChildren bool) (err error) {
 		refNode = refNode.Parent
 	}
 	defTree, err := LoadTreeByBlockID(defID)
-	if nil != err {
+	if err != nil {
 		return
 	}
 	sameTree := defTree.ID == refTree.ID
@@ -382,7 +395,7 @@ func SwapBlockRef(refID, defID string, includeChildren bool) (err error) {
 	refreshUpdated(defNode)
 	refreshUpdated(refNode)
 
-	refPivot := treenode.NewParagraph()
+	refPivot := treenode.NewParagraph("")
 	refNode.InsertBefore(refPivot)
 
 	if ast.NodeListItem == defNode.Type {
@@ -442,22 +455,22 @@ func SwapBlockRef(refID, defID string, includeChildren bool) (err error) {
 	}
 	refPivot.Unlink()
 
-	if err = indexWriteTreeUpsertQueue(refTree); nil != err {
+	if err = indexWriteTreeUpsertQueue(refTree); err != nil {
 		return
 	}
 	if !sameTree {
-		if err = indexWriteTreeUpsertQueue(defTree); nil != err {
+		if err = indexWriteTreeUpsertQueue(defTree); err != nil {
 			return
 		}
 	}
-	WaitForWritingFiles()
+	FlushTxQueue()
 	util.ReloadUI()
 	return
 }
 
 func GetHeadingDeleteTransaction(id string) (transaction *Transaction, err error) {
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -500,7 +513,7 @@ func GetHeadingDeleteTransaction(id string) (transaction *Transaction, err error
 
 func GetHeadingChildrenIDs(id string) (ret []string) {
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 	heading := treenode.GetNodeInTree(tree, id)
@@ -518,7 +531,7 @@ func GetHeadingChildrenIDs(id string) (ret []string) {
 
 func GetHeadingChildrenDOM(id string) (ret string) {
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 	heading := treenode.GetNodeInTree(tree, id)
@@ -536,7 +549,7 @@ func GetHeadingChildrenDOM(id string) (ret string) {
 
 func GetHeadingLevelTransaction(id string, level int) (transaction *Transaction, err error) {
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -595,7 +608,7 @@ func GetBlockDOM(id string) (ret string) {
 	}
 
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 	node := treenode.GetNodeInTree(tree, id)
@@ -610,7 +623,7 @@ func GetBlockKramdown(id string) (ret string) {
 	}
 
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -625,9 +638,11 @@ func GetBlockKramdown(id string) (ret string) {
 }
 
 type ChildBlock struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	SubType string `json:"subType,omitempty"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	SubType  string `json:"subType,omitempty"`
+	Content  string `json:"content,omitempty"`
+	Markdown string `json:"markdown,omitempty"`
 }
 
 func GetChildBlocks(id string) (ret []*ChildBlock) {
@@ -637,7 +652,7 @@ func GetChildBlocks(id string) (ret []*ChildBlock) {
 	}
 
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -649,10 +664,13 @@ func GetChildBlocks(id string) (ret []*ChildBlock) {
 	if ast.NodeHeading == node.Type {
 		children := treenode.HeadingChildren(node)
 		for _, c := range children {
+			block := sql.BuildBlockFromNode(c, tree)
 			ret = append(ret, &ChildBlock{
-				ID:      c.ID,
-				Type:    treenode.TypeAbbr(c.Type.String()),
-				SubType: treenode.SubTypeAbbr(c),
+				ID:       c.ID,
+				Type:     treenode.TypeAbbr(c.Type.String()),
+				SubType:  treenode.SubTypeAbbr(c),
+				Content:  block.Content,
+				Markdown: block.Markdown,
 			})
 		}
 		return
@@ -667,10 +685,13 @@ func GetChildBlocks(id string) (ret []*ChildBlock) {
 			continue
 		}
 
+		block := sql.BuildBlockFromNode(c, tree)
 		ret = append(ret, &ChildBlock{
-			ID:      c.ID,
-			Type:    treenode.TypeAbbr(c.Type.String()),
-			SubType: treenode.SubTypeAbbr(c),
+			ID:       c.ID,
+			Type:     treenode.TypeAbbr(c.Type.String()),
+			SubType:  treenode.SubTypeAbbr(c),
+			Content:  block.Content,
+			Markdown: block.Markdown,
 		})
 	}
 	return
@@ -683,7 +704,7 @@ func GetTailChildBlocks(id string, n int) (ret []*ChildBlock) {
 	}
 
 	tree, err := LoadTreeByBlockID(id)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -696,10 +717,13 @@ func GetTailChildBlocks(id string, n int) (ret []*ChildBlock) {
 		children := treenode.HeadingChildren(node)
 		for i := len(children) - 1; 0 <= i; i-- {
 			c := children[i]
+			block := sql.BuildBlockFromNode(c, tree)
 			ret = append(ret, &ChildBlock{
-				ID:      c.ID,
-				Type:    treenode.TypeAbbr(c.Type.String()),
-				SubType: treenode.SubTypeAbbr(c),
+				ID:       c.ID,
+				Type:     treenode.TypeAbbr(c.Type.String()),
+				SubType:  treenode.SubTypeAbbr(c),
+				Content:  block.Content,
+				Markdown: block.Markdown,
 			})
 			if n == len(ret) {
 				return
@@ -717,10 +741,13 @@ func GetTailChildBlocks(id string, n int) (ret []*ChildBlock) {
 			continue
 		}
 
+		block := sql.BuildBlockFromNode(c, tree)
 		ret = append(ret, &ChildBlock{
-			ID:      c.ID,
-			Type:    treenode.TypeAbbr(c.Type.String()),
-			SubType: treenode.SubTypeAbbr(c),
+			ID:       c.ID,
+			Type:     treenode.TypeAbbr(c.Type.String()),
+			SubType:  treenode.SubTypeAbbr(c),
+			Content:  block.Content,
+			Markdown: block.Markdown,
 		})
 
 		if n == len(ret) {
@@ -742,10 +769,10 @@ func getBlock(id string, tree *parse.Tree) (ret *Block, err error) {
 
 	if nil == tree {
 		tree, err = LoadTreeByBlockID(id)
-		if nil != err {
+		if err != nil {
 			time.Sleep(1 * time.Second)
 			tree, err = LoadTreeByBlockID(id)
-			if nil != err {
+			if err != nil {
 				return
 			}
 		}
@@ -817,13 +844,30 @@ func getEmbeddedBlock(trees map[string]*parse.Tree, sqlBlock *sql.Block, heading
 	// 嵌入块查询结果中显示块引用计数 https://github.com/siyuan-note/siyuan/issues/7191
 	var defIDs []string
 	for _, n := range nodes {
-		defIDs = append(defIDs, n.ID)
+		ast.Walk(n, func(n *ast.Node, entering bool) ast.WalkStatus {
+			if !entering {
+				return ast.WalkContinue
+			}
+
+			if n.IsBlock() {
+				defIDs = append(defIDs, n.ID)
+			}
+			return ast.WalkContinue
+		})
 	}
+	defIDs = gulu.Str.RemoveDuplicatedElem(defIDs)
 	refCount := sql.QueryRefCount(defIDs)
 	for _, n := range nodes {
-		if cnt := refCount[n.ID]; 0 < cnt {
-			n.SetIALAttr("refcount", strconv.Itoa(cnt))
-		}
+		ast.Walk(n, func(n *ast.Node, entering bool) ast.WalkStatus {
+			if !entering || !n.IsBlock() {
+				return ast.WalkContinue
+			}
+
+			if cnt := refCount[n.ID]; 0 < cnt {
+				n.SetIALAttr("refcount", strconv.Itoa(cnt))
+			}
+			return ast.WalkContinue
+		})
 	}
 
 	luteEngine := NewLute()
@@ -843,7 +887,7 @@ func getEmbeddedBlock(trees map[string]*parse.Tree, sqlBlock *sql.Block, heading
 	}
 
 	if breadcrumb {
-		blockPaths = buildBlockBreadcrumb(def, nil)
+		blockPaths = buildBlockBreadcrumb(def, nil, true)
 	}
 	if 1 > len(blockPaths) {
 		blockPaths = []*BlockPath{}

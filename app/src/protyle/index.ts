@@ -23,10 +23,10 @@ import {
 } from "./wysiwyg/transaction";
 import {fetchPost} from "../util/fetch";
 /// #if !MOBILE
-import {Title} from "./header/Title";
 import {updatePanelByEditor} from "../editor/util";
 import {setPanelFocus} from "../layout/util";
 /// #endif
+import {Title} from "./header/Title";
 import {Background} from "./header/Background";
 import {onGet, setReadonlyByConfig} from "./util/onGet";
 import {reloadProtyle} from "./util/reload";
@@ -41,6 +41,7 @@ import {focusBlock, getEditorRange} from "./util/selection";
 import {hasClosestBlock} from "./util/hasClosest";
 import {setStorageVal} from "./util/compatibility";
 import {merge} from "./util/merge";
+import {getAllModels} from "../layout/getAll";
 
 export class Protyle {
 
@@ -51,9 +52,9 @@ export class Protyle {
      * @param id 要挂载 Protyle 的元素或者元素 ID。
      * @param options Protyle 参数
      */
-    constructor(app: App, id: HTMLElement, options?: IOptions) {
+    constructor(app: App, id: HTMLElement, options?: IProtyleOptions) {
         this.version = Constants.SIYUAN_VERSION;
-        let pluginsOptions: IOptions = options;
+        let pluginsOptions: IProtyleOptions = options;
         app.plugins.forEach(item => {
             if (item.protyleOptions) {
                 pluginsOptions = merge(pluginsOptions, item.protyleOptions);
@@ -77,11 +78,9 @@ export class Protyle {
         if (mergedOptions.render.breadcrumb) {
             this.protyle.breadcrumb = new Breadcrumb(this.protyle);
         }
-        /// #if !MOBILE
         if (mergedOptions.render.title) {
             this.protyle.title = new Title(this.protyle);
         }
-        /// #endif
         if (mergedOptions.render.background) {
             this.protyle.background = new Background(this.protyle);
         }
@@ -127,15 +126,24 @@ export class Protyle {
                             }
                             break;
                         case "transactions":
-                            data.data[0].doOperations.forEach((item: IOperation) => {
-                                if (!this.protyle.preview.element.classList.contains("fn__none") &&
-                                    item.action !== "updateAttrs"   // 预览模式下点击只读
-                                ) {
-                                    this.protyle.preview.render(this.protyle);
-                                } else {
-                                    onTransaction(this.protyle, item, false);
-                                }
-                            });
+                            if (options.backlinkData) {
+                                getAllModels().backlink.find(item => {
+                                    if (item.element.contains(this.protyle.element)) {
+                                        item.refresh();
+                                        return true;
+                                    }
+                                });
+                            } else {
+                                data.data[0].doOperations.forEach((item: IOperation) => {
+                                    if (!this.protyle.preview.element.classList.contains("fn__none") &&
+                                        item.action !== "updateAttrs"   // 预览模式下点击只读
+                                    ) {
+                                        this.protyle.preview.render(this.protyle);
+                                    } else {
+                                        onTransaction(this.protyle, item, false);
+                                    }
+                                });
+                            }
                             break;
                         case "readonly":
                             window.siyuan.config.editor.readOnly = data.data;
@@ -178,7 +186,8 @@ export class Protyle {
                                 }
                             }
                             if (this.protyle.options.render.title && this.protyle.block.parentID === data.data.id) {
-                                if (getSelection().rangeCount > 0 && this.protyle.title.editElement.contains(getSelection().getRangeAt(0).startContainer)) {
+                                if (!document.body.classList.contains("body--blur") && getSelection().rangeCount > 0 &&
+                                    this.protyle.title.editElement?.contains(getSelection().getRangeAt(0).startContainer)) {
                                     // 标题编辑中的不用更新 https://github.com/siyuan-note/siyuan/issues/6565
                                 } else {
                                     this.protyle.title.setTitle(data.data.title);
@@ -228,6 +237,8 @@ export class Protyle {
             if (options.backlinkData) {
                 this.protyle.block.rootID = options.blockId;
                 renderBacklink(this.protyle, options.backlinkData);
+                // 为了满足 eventPath0.style.paddingLeft 从而显示块标 https://github.com/siyuan-note/siyuan/issues/11578
+                this.protyle.wysiwyg.element.style.paddingLeft = "16px";
                 return;
             }
             if (!options.blockId) {
@@ -259,7 +270,7 @@ export class Protyle {
         }
     }
 
-    private getDoc(mergedOptions: IOptions) {
+    private getDoc(mergedOptions: IProtyleOptions) {
         fetchPost("/api/filetree/getDoc", {
             id: mergedOptions.blockId,
             isBacklink: mergedOptions.action.includes(Constants.CB_GET_BACKLINK),
@@ -278,10 +289,10 @@ export class Protyle {
         });
     }
 
-    private afterOnGet(mergedOptions: IOptions) {
+    private afterOnGet(mergedOptions: IProtyleOptions) {
         if (this.protyle.model) {
             /// #if !MOBILE
-            if (mergedOptions.action?.includes(Constants.CB_GET_FOCUS)) {
+            if (mergedOptions.action?.includes(Constants.CB_GET_FOCUS) || mergedOptions.action?.includes(Constants.CB_GET_OPENNEW)) {
                 setPanelFocus(this.protyle.model.element.parentElement.parentElement);
             }
             updatePanelByEditor({

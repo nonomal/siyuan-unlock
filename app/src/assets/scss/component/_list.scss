@@ -101,22 +101,27 @@
       padding: 0 4px;
       color: var(--b3-theme-on-surface-light);
       transition: var(--b3-transition);
+      border-radius: var(--b3-border-radius);
 
       &--hl:hover {
         color: var(--b3-theme-on-background);
         background-color: var(--b3-list-icon-hover);
-        border-radius: var(--b3-border-radius);
       }
+    }
+
+    // 大纲中有图片 https://github.com/siyuan-note/siyuan/issues/12993
+    .img img {
+      height: 24px;
+      vertical-align: top;
+      margin: 2px 0;
+      width: auto !important;
     }
 
     &__icon {
       svg, img {
-        float: left;
-        margin: 3px 0;
         height: 16px;
         width: 16px;
         color: var(--b3-theme-on-surface);
-        border-radius: var(--b3-border-radius);
       }
 
       text-align: center;
@@ -128,11 +133,13 @@
       height: 22px;
       padding: 0 4px;
       flex-shrink: 0;
+      border-radius: var(--b3-border-radius);
+      display: flex;
+      align-items: center;
 
       &:hover {
         color: var(--b3-theme-on-background);
         background-color: var(--b3-list-icon-hover);
-        border-radius: var(--b3-border-radius);
       }
     }
 
@@ -190,7 +197,7 @@
       @include text-clamp(1);
 
       // 搜索列表中自定义图标
-      & > img,
+      & > img:not(.emoji),
       & > .custom-icon {
         height: 14px;
         width: 14px;
@@ -227,6 +234,7 @@
       margin-left: 4px;
       display: flex;
       translate: var(--b3-transition);
+      border-radius: var(--b3-border-radius);
 
       svg {
         height: 14px;
@@ -236,7 +244,6 @@
       &:hover {
         color: var(--b3-theme-on-background);
         background-color: var(--b3-list-icon-hover);
-        border-radius: var(--b3-border-radius);
       }
     }
 

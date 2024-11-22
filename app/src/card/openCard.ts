@@ -174,7 +174,6 @@ export const bindCardEvent = async (options: {
         action: [Constants.CB_GET_ALL],
         render: {
             background: false,
-            title: false,
             gutter: true,
             breadcrumbDocName: true,
         },
@@ -204,7 +203,7 @@ export const bindCardEvent = async (options: {
     }
     options.element.setAttribute("data-key", Constants.DIALOG_OPENCARD);
     const actionElements = options.element.querySelectorAll(".card__action");
-    if (options.index === 0) {
+    if (options.index === 0 || typeof options.index === "undefined") {
         actionElements[0].firstElementChild.setAttribute("disabled", "disabled");
     } else {
         actionElements[0].firstElementChild.removeAttribute("disabled");
@@ -313,7 +312,7 @@ export const bindCardEvent = async (options: {
                             fetchPost("/api/riff/batchSetRiffCardsDueTime", {
                                 cardDues: [{
                                     id: currentCard.cardID,
-                                    due: dayjs().day(parseInt(inputElement.value)).format("YYYYMMDDHHmmss")
+                                    due: dayjs().add(parseInt(inputElement.value), "day").format("YYYYMMDDHHmmss")
                                 }]
                             }, () => {
                                 actionElements[0].classList.add("fn__none");
@@ -449,7 +448,7 @@ export const bindCardEvent = async (options: {
                     icon: "iconOpenWindow",
                     label: window.siyuan.languages.openByNewWindow,
                     click() {
-                        const json = {
+                        const json = [{
                             "title": window.siyuan.languages.spaceRepetition,
                             "icon": "iconRiffCard",
                             "instance": "Tab",
@@ -462,7 +461,7 @@ export const bindCardEvent = async (options: {
                                     "title": options.title
                                 }
                             }
-                        };
+                        }];
                         ipcRenderer.send(Constants.SIYUAN_OPEN_WINDOW, {
                             // 需要 encode， 否则 https://github.com/siyuan-note/siyuan/issues/9343
                             url: `${window.location.protocol}//${window.location.host}/stage/build/app/window.html?v=${Constants.SIYUAN_VERSION}&json=${encodeURIComponent(JSON.stringify(json))}`
@@ -673,6 +672,9 @@ const emitEvent = (app: App, card: ICard, type: string) => {
 };
 
 export const openCard = (app: App) => {
+    if (window.siyuan.config.readonly) {
+        return;
+    }
     fetchPost("/api/riff/getRiffDueCards", {deckID: ""}, (cardsResponse) => {
         openCardByData(app, cardsResponse.data, "all");
     });
