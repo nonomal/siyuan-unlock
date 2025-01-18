@@ -27,6 +27,8 @@
 @import "business/custom";
 @import "business/av";
 @import "business/search";
+@import "business/emojis";
+@import "component/svg";
 
 .block__popover {
   width: 80vw;
@@ -52,12 +54,16 @@
       font-size: 18px;
       line-height: 32px;
       height: auto;
+
+      &:hover {
+        background-color: transparent;
+      }
     }
 
     &__graphic {
       width: 18px;
-      height: 40px;
-      line-height: 40px;
+      height: 18px;
+      line-height: 18px;
       font-size: 18px;
     }
 
@@ -133,6 +139,15 @@
     &:not(.toolbar__icon-deactivate):hover {
       background-color: var(--b3-list-hover);
     }
+
+    &--history {
+      height: 36px;
+      width: 36px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 0;
+    }
   }
 
   &__title {
@@ -145,10 +160,6 @@
     border: 0;
     background-color: transparent;
     color: var(--b3-theme-on-background);
-  }
-
-  &__search {
-    margin: 8px;
   }
 
   &__text {
@@ -390,6 +401,7 @@
   stroke: currentColor;
   width: 14px;
   height: 14px;
+  flex-shrink: 0;
 
   &--mid {
     width: 16px;
@@ -399,6 +411,11 @@
   &--small {
     width: 12px;
     height: 12px;
+  }
+
+  &--smaller {
+    width: 10px;
+    height: 10px;
   }
 }
 
@@ -417,6 +434,14 @@
 .b3-menu {
   &__accelerator {
     display: none;
+  }
+
+  &__item--warning {
+    color: var(--b3-theme-error);
+
+    & > .b3-menu__icon {
+      color: var(--b3-theme-error);
+    }
   }
 }
 
@@ -447,13 +472,6 @@
 }
 
 .protyle {
-  &-util {
-    .color__square {
-      height: 24px;
-      width: 24px;
-    }
-  }
-
   &-font {
     font-size: 14px;
   }
@@ -469,18 +487,14 @@
   &-background__img img {
     height: 200px;
   }
+
+  &-scroll {
+    right: 0;
+  }
 }
 
-html .protyle-wysiwyg [data-node-id]:last-child [spellcheck][contenteditable="true"]:empty:before {
-  content: "Enter text";
-  color: var(--b3-empty-color);
-}
-
-html[lang="zh_CN"] .protyle-wysiwyg [data-node-id]:last-child [spellcheck][contenteditable="true"]:empty:before {
-  content: "键入文字";
-}
-
-.av__views .block__icon {
+.av__views .block__icon,
+.av__row--footer .av__calc {
   opacity: 1;
 }
 

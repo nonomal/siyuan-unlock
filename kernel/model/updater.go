@@ -29,8 +29,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/88250/gulu"
+	"github.com/imroc/req/v3"
 	"github.com/siyuan-note/logging"
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
@@ -52,23 +54,28 @@ func execNewVerInstallPkg(newVerInstallPkgPath string) {
 	}
 }
 
+var newVerInstallPkgPath string
+
 func getNewVerInstallPkgPath() string {
 	if skipNewVerInstallPkg() {
+		newVerInstallPkgPath = ""
 		return ""
 	}
 
 	downloadPkgURLs, checksum, err := getUpdatePkg()
-	if nil != err || 1 > len(downloadPkgURLs) || "" == checksum {
+	if err != nil || 1 > len(downloadPkgURLs) || "" == checksum {
+		newVerInstallPkgPath = ""
 		return ""
 	}
 
 	pkg := path.Base(downloadPkgURLs[0])
-	ret := filepath.Join(util.TempDir, "install", pkg)
-	localChecksum, _ := sha256Hash(ret)
+	newVerInstallPkgPath = filepath.Join(util.TempDir, "install", pkg)
+	localChecksum, _ := sha256Hash(newVerInstallPkgPath)
 	if checksum != localChecksum {
+		newVerInstallPkgPath = ""
 		return ""
 	}
-	return ret
+	return newVerInstallPkgPath
 }
 
 var checkDownloadInstallPkgLock = sync.Mutex{}
@@ -86,7 +93,7 @@ func checkDownloadInstallPkg() {
 	defer checkDownloadInstallPkgLock.Unlock()
 
 	downloadPkgURLs, checksum, err := getUpdatePkg()
-	if nil != err || 1 > len(downloadPkgURLs) || "" == checksum {
+	if err != nil || 1 > len(downloadPkgURLs) || "" == checksum {
 		return
 	}
 
@@ -94,7 +101,7 @@ func checkDownloadInstallPkg() {
 	succ := false
 	for _, downloadPkgURL := range downloadPkgURLs {
 		err = downloadInstallPkg(downloadPkgURL, checksum)
-		if nil == err {
+		if err == nil {
 			succ = true
 			break
 
@@ -108,7 +115,7 @@ func checkDownloadInstallPkg() {
 func getUpdatePkg() (downloadPkgURLs []string, checksum string, err error) {
 	defer logging.Recover()
 	result, err := util.GetRhyResult(false)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -119,7 +126,11 @@ func getUpdatePkg() (downloadPkgURLs []string, checksum string, err error) {
 
 	var suffix string
 	if gulu.OS.IsWindows() {
-		suffix = "win.exe"
+		if "arm64" == runtime.GOARCH {
+			suffix = "win-arm64.exe"
+		} else {
+			suffix = "win.exe"
+		}
 	} else if gulu.OS.IsDarwin() {
 		if "arm64" == runtime.GOARCH {
 			suffix = "mac-arm64.dmg"
@@ -150,12 +161,51 @@ func getUpdatePkg() (downloadPkgURLs []string, checksum string, err error) {
 }
 
 func downloadInstallPkg(pkgURL, checksum string) (err error) {
+	if "" == pkgURL || "" == checksum {
+		return
+	}
+
+	pkg := path.Base(pkgURL)
+	savePath := filepath.Join(util.TempDir, "install", pkg)
+	if gulu.File.IsExist(savePath) {
+		localChecksum, _ := sha256Hash(savePath)
+		if localChecksum == checksum {
+			return
+		}
+	}
+
+	err = os.MkdirAll(filepath.Join(util.TempDir, "install"), 0755)
+	if err != nil {
+		logging.LogErrorf("create temp install dir failed: %s", err)
+		return
+	}
+
+	logging.LogInfof("downloading install package [%s]", pkgURL)
+	client := req.C().SetTLSHandshakeTimeout(7 * time.Second).SetTimeout(10 * time.Minute).DisableInsecureSkipVerify()
+	callback := func(info req.DownloadInfo) {
+		progress := fmt.Sprintf("%.2f%%", float64(info.DownloadedSize)/float64(info.Response.ContentLength)*100.0)
+		// logging.LogDebugf("downloading install package [%s %s]", pkgURL, progress)
+		util.PushStatusBar(fmt.Sprintf(Conf.Language(133), progress))
+	}
+	_, err = client.R().SetOutputFile(savePath).SetDownloadCallbackWithInterval(callback, 1*time.Second).Get(pkgURL)
+	if err != nil {
+		logging.LogErrorf("download install package [%s] failed: %s", pkgURL, err)
+		return
+	}
+
+	localChecksum, _ := sha256Hash(savePath)
+	if checksum != localChecksum {
+		logging.LogErrorf("verify checksum failed, download install package [%s] checksum [%s] not equal to downloaded [%s] checksum [%s]", pkgURL, checksum, savePath, localChecksum)
+		return
+	}
+	logging.LogInfof("downloaded install package [%s] to [%s]", pkgURL, savePath)
+	util.PushStatusBar(Conf.Language(62))
 	return
 }
 
 func sha256Hash(filename string) (ret string, err error) {
 	file, err := os.Open(filename)
-	if nil != err {
+	if err != nil {
 		return
 	}
 	defer file.Close()
@@ -184,7 +234,7 @@ type Announcement struct {
 
 func GetAnnouncements() (ret []*Announcement) {
 	result, err := util.GetRhyResult(false)
-	if nil != err {
+	if err != nil {
 		logging.LogErrorf("get announcement failed: %s", err)
 		return
 	}
@@ -207,10 +257,16 @@ func GetAnnouncements() (ret []*Announcement) {
 }
 
 func CheckUpdate(showMsg bool) {
-	return
+	if !showMsg {
+		return
+	}
+
+	if Conf.System.IsMicrosoftStore {
+		return
+	}
 
 	result, err := util.GetRhyResult(showMsg)
-	if nil != err {
+	if err != nil {
 		return
 	}
 
@@ -247,7 +303,23 @@ func isVersionUpToDate(releaseVer string) bool {
 }
 
 func skipNewVerInstallPkg() bool {
-	return true
+	if !gulu.OS.IsWindows() && !gulu.OS.IsDarwin() {
+		return true
+	}
+	if util.ISMicrosoftStore || util.ContainerStd != util.Container {
+		return true
+	}
+	if !Conf.System.DownloadInstallPkg {
+		return true
+	}
+	if gulu.OS.IsWindows() {
+		plat := strings.ToLower(Conf.System.OSPlatform)
+		// Windows 7, 8 and Server 2012 are no longer supported https://github.com/siyuan-note/siyuan/issues/7347
+		if strings.Contains(plat, " 7 ") || strings.Contains(plat, " 8 ") || strings.Contains(plat, "2012") {
+			return true
+		}
+	}
+	return false
 }
 
 func ver2num(a string) int {

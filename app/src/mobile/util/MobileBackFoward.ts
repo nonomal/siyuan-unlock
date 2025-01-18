@@ -18,6 +18,9 @@ const forwardStack: IBackStack[] = [];
 
 const focusStack = (backStack: IBackStack) => {
     const protyle = getCurrentEditor().protyle;
+    // 前进后快速后退会导致滚动错位 https://ld246.com/article/1734018624070
+    protyle.observerLoad.disconnect();
+
     window.siyuan.storage[Constants.LOCAL_DOCINFO] = {
         id: backStack.id,
     };
@@ -44,7 +47,7 @@ const focusStack = (backStack: IBackStack) => {
             id: backStack.id,
         }, (response) => {
             setTitle(response.data.name);
-            (document.getElementById("toolbarName") as HTMLInputElement).value = response.data.name === window.siyuan.languages.untitled ? "" : response.data.name;
+            protyle.title.setTitle(response.data.name);
             protyle.background.render(response.data.ial, protyle.block.rootID);
             protyle.wysiwyg.renderCustom(response.data.ial);
         });
@@ -95,6 +98,10 @@ const focusStack = (backStack: IBackStack) => {
             setReadonlyByConfig(protyle, true);
         }
         protyle.contentElement.scrollTop = backStack.scrollTop;
+        // 等待 av 等加载 https://ld246.com/article/1734018624070
+        setTimeout(() => {
+            protyle.contentElement.scrollTop = backStack.scrollTop;
+        }, Constants.TIMEOUT_LOAD);
     });
 };
 

@@ -12,11 +12,11 @@ import {MenuItem} from "../../menus/Menu";
 import {openFileAttr,} from "../../menus/commonMenuItem";
 import {Constants} from "../../constants";
 import {matchHotKey} from "../util/hotKey";
-import {isMac, readText, writeText} from "../util/compatibility";
+import {isMac, readText} from "../util/compatibility";
 import * as dayjs from "dayjs";
 import {openFileById} from "../../editor/util";
 import {setTitle} from "../../dialog/processSystem";
-import {getNoContainerElement} from "../wysiwyg/getBlock";
+import {getContenteditableElement, getNoContainerElement} from "../wysiwyg/getBlock";
 import {commonHotkey} from "../wysiwyg/commonHotkey";
 import {code160to32} from "../util/code160to32";
 import {genEmptyElement} from "../../block/util";
@@ -25,6 +25,7 @@ import {hideTooltip} from "../../dialog/tooltip";
 import {commonClick} from "../wysiwyg/commonClick";
 import {openTitleMenu} from "./openTitleMenu";
 import {electronUndo} from "../undo";
+import {enableLuteMarkdownSyntax, restoreLuteMarkdownSyntax} from "../util/paste";
 
 export class Title {
     public element: HTMLElement;
@@ -37,6 +38,7 @@ export class Title {
         if (window.siyuan.config.editor.displayBookmarkIcon) {
             this.element.classList.add("protyle-wysiwyg--attr");
         }
+        /// #if !MOBILE
         // 标题内需要一个空格，避免首次加载出现`请输入文档名`干扰
         this.element.innerHTML = `<span aria-label="${isMac() ? window.siyuan.languages.gutterTip2 : window.siyuan.languages.gutterTip2.replace("⇧", "Shift+")}" data-position="right" class="protyle-title__icon ariaLabel"><svg><use xlink:href="#iconFile"></use></svg></span>
 <div contenteditable="true" spellcheck="${window.siyuan.config.editor.spellcheck}" class="protyle-title__input" data-tip="${window.siyuan.languages._kernel[16]}"> </div><div class="protyle-attr"></div>`;
@@ -44,7 +46,17 @@ export class Title {
         this.editElement.addEventListener("paste", (event: ClipboardEvent) => {
             event.stopPropagation();
             event.preventDefault();
-            document.execCommand("insertText", false, replaceFileName(event.clipboardData.getData("text/plain")));
+            // 不能使用 range.insertNode，否则无法撤销
+            let text = event.clipboardData.getData("text/siyuan");
+            if (text) {
+                text = protyle.lute.BlockDOM2Content(text);
+            } else {
+                text = event.clipboardData.getData("text/plain");
+            }
+            // 阻止右键复制菜单报错
+            setTimeout(function () {
+                document.execCommand("insertText", false, replaceFileName(text));
+            }, 0);
             this.rename(protyle);
         });
         this.editElement.addEventListener("click", () => {
@@ -76,7 +88,9 @@ export class Title {
                 navigator.clipboard.readText().then(textPlain => {
                     // 对 HTML 标签进行内部转义，避免被 Lute 解析以后变为小写 https://github.com/siyuan-note/siyuan/issues/10620
                     textPlain = textPlain.replace(/</g, ";;;lt;;;").replace(/>/g, ";;;gt;;;");
+                    enableLuteMarkdownSyntax(protyle);
                     let content = protyle.lute.BlockDOM2EscapeMarkerContent(protyle.lute.Md2BlockDOM(textPlain));
+                    restoreLuteMarkdownSyntax(protyle);
                     // 移除 ;;;lt;;; 和 ;;;gt;;; 转义及其包裹的内容
                     content = content.replace(/;;;lt;;;[^;]+;;;gt;;;/g, "");
                     document.execCommand("insertText", false, replaceFileName(content));
@@ -102,27 +116,38 @@ export class Title {
                 return;
             }
             if (event.key === "ArrowDown") {
-                const noContainerElement = getNoContainerElement(protyle.wysiwyg.element.firstElementChild);
-                // https://github.com/siyuan-note/siyuan/issues/4923
-                if (noContainerElement) {
-                    focusBlock(noContainerElement, protyle.wysiwyg.element);
+                const rects = getSelection().getRangeAt(0).getClientRects();
+                // https://github.com/siyuan-note/siyuan/issues/11729
+                if (rects.length === 0 // 标题为空时时
+                    || this.editElement.getBoundingClientRect().bottom - rects[rects.length - 1].bottom < 25) {
+                    const noContainerElement = getNoContainerElement(protyle.wysiwyg.element.firstElementChild);
+                    // https://github.com/siyuan-note/siyuan/issues/4923
+                    if (noContainerElement) {
+                        focusBlock(noContainerElement, protyle.wysiwyg.element);
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
                 }
-                event.preventDefault();
-                event.stopPropagation();
             } else if (event.key === "Enter") {
-                const newId = Lute.NewNodeID();
-                const newElement = genEmptyElement(false, true, newId);
-                protyle.wysiwyg.element.insertAdjacentElement("afterbegin", newElement);
-                focusByWbr(newElement, protyle.toolbar.range || getEditorRange(newElement));
-                transaction(protyle, [{
-                    action: "insert",
-                    data: newElement.outerHTML,
-                    id: newId,
-                    parentID: protyle.block.parentID
-                }], [{
-                    action: "delete",
-                    id: newId,
-                }]);
+                const editElment = getContenteditableElement(protyle.wysiwyg.element.firstElementChild);
+                if (editElment && editElment.textContent === "" && !protyle.wysiwyg.element.firstElementChild.classList.contains("av")) {
+                    // 配合提示文本使用，避免提示文本挤压到第二个块中
+                    focusBlock(protyle.wysiwyg.element.firstElementChild, protyle.wysiwyg.element);
+                } else {
+                    const newId = Lute.NewNodeID();
+                    const newElement = genEmptyElement(false, true, newId);
+                    protyle.wysiwyg.element.insertAdjacentElement("afterbegin", newElement);
+                    focusByWbr(newElement, protyle.toolbar.range || getEditorRange(newElement));
+                    transaction(protyle, [{
+                        action: "insert",
+                        data: newElement.outerHTML,
+                        id: newId,
+                        parentID: protyle.block.parentID
+                    }], [{
+                        action: "delete",
+                        id: newId,
+                    }]);
+                }
                 event.preventDefault();
                 event.stopPropagation();
             } else if (matchHotKey(window.siyuan.config.keymap.editor.general.attr.custom, event)) {
@@ -135,18 +160,6 @@ export class Title {
                 event.stopPropagation();
             } else if (matchHotKey("⌘A", event)) {
                 getEditorRange(this.editElement).selectNodeContents(this.editElement);
-                event.preventDefault();
-                event.stopPropagation();
-            } else if (matchHotKey(window.siyuan.config.keymap.editor.general.copyID.custom, event)) {
-                writeText(protyle.block.rootID);
-                event.preventDefault();
-                event.stopPropagation();
-            } else if (matchHotKey(window.siyuan.config.keymap.editor.general.copyBlockEmbed.custom, event)) {
-                writeText(`{{select * from blocks where id='${protyle.block.rootID}'}}`);
-                event.preventDefault();
-                event.stopPropagation();
-            } else if (matchHotKey(window.siyuan.config.keymap.editor.general.copyProtocol.custom, event)) {
-                writeText(`siyuan://blocks/${protyle.block.rootID}`);
                 event.preventDefault();
                 event.stopPropagation();
             }
@@ -217,10 +230,7 @@ export class Title {
                 accelerator: "⌘V",
                 click: async () => {
                     focusByRange(getEditorRange(this.editElement));
-                    // 不能使用 execCommand https://github.com/siyuan-note/siyuan/issues/7045
-                    const text = await readText();
-                    document.execCommand("insertText", false, replaceFileName(text));
-                    this.rename(protyle);
+                    document.execCommand("paste");
                 }
             }).element);
             window.siyuan.menus.menu.append(new MenuItem({
@@ -229,7 +239,9 @@ export class Title {
                 click: async () => {
                     navigator.clipboard.readText().then(textPlain => {
                         textPlain = textPlain.replace(/</g, ";;;lt;;;").replace(/>/g, ";;;gt;;;");
+                        enableLuteMarkdownSyntax(protyle);
                         let content = protyle.lute.BlockDOM2EscapeMarkerContent(protyle.lute.Md2BlockDOM(textPlain));
+                        restoreLuteMarkdownSyntax(protyle);
                         // 移除 ;;;lt;;; 和 ;;;gt;;; 转义及其包裹的内容
                         content = content.replace(/;;;lt;;;[^;]+;;;gt;;;/g, "");
                         document.execCommand("insertText", false, replaceFileName(content));
@@ -248,6 +260,9 @@ export class Title {
             }).element);
             window.siyuan.menus.menu.popup({x: event.clientX, y: event.clientY});
         });
+        /// #else
+        this.element.innerHTML = '<div class="protyle-attr"></div>';
+        /// #endif
         this.element.querySelector(".protyle-attr").addEventListener("click", (event: MouseEvent & {
             target: HTMLElement
         }) => {
@@ -282,13 +297,20 @@ export class Title {
     }
 
     public setTitle(title: string) {
+        /// #if MOBILE
+        const inputElement = document.getElementById("toolbarName") as HTMLInputElement;
+        if (code160to32(title) !== code160to32(inputElement.value)) {
+            inputElement.value = title === window.siyuan.languages.untitled ? "" : title;
+        }
+        /// #else
         if (code160to32(title) !== code160to32(this.editElement.textContent)) {
             this.editElement.textContent = title === window.siyuan.languages.untitled ? "" : title;
         }
+        /// #endif
     }
 
     public render(protyle: IProtyle, response: IWebSocketData) {
-        if (this.editElement.getAttribute("data-render") === "true") {
+        if (this.element.getAttribute("data-render") === "true") {
             return false;
         }
         this.element.setAttribute("data-node-id", protyle.block.rootID);
@@ -297,7 +319,7 @@ export class Title {
         }
         protyle.background?.render(response.data.ial, protyle.block.rootID);
         protyle.wysiwyg.renderCustom(response.data.ial);
-        this.editElement.setAttribute("data-render", "true");
+        this.element.setAttribute("data-render", "true");
         this.setTitle(response.data.ial.title);
         let nodeAttrHTML = "";
         if (response.data.ial.bookmark) {
@@ -327,7 +349,7 @@ export class Title {
             this.element.querySelector(".protyle-attr").insertAdjacentHTML("beforeend", `<div class="protyle-attr--refcount popover__block" data-defids='${JSON.stringify([protyle.block.rootID])}' data-id='${JSON.stringify(response.data.refIDs)}'>${response.data.refCount}</div>`);
         }
         // 存在设置新建文档名模板，不能使用 Untitled 进行判断，https://ld246.com/article/1649301009888
-        if (new Date().getTime() - dayjs(response.data.id.split("-")[0]).toDate().getTime() < 2000) {
+        if (this.editElement && new Date().getTime() - dayjs(response.data.id.split("-")[0]).toDate().getTime() < 2000) {
             const range = this.editElement.ownerDocument.createRange();
             range.selectNodeContents(this.editElement);
             focusByRange(range);

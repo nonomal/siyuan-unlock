@@ -87,8 +87,8 @@ const renderProvider = (provider: number) => {
     <div class="fn__flex-center fn__size200">Addressing</div>
     <div class="fn__space"></div>
     <select class="b3-select fn__block" id="pathStyle">
-        <option ${window.siyuan.config.sync.s3.pathStyle ? "" : "selected"} value="false">Virtual-hosted-style</option>
         <option ${window.siyuan.config.sync.s3.pathStyle ? "selected" : ""} value="true">Path-style</option>
+        <option ${window.siyuan.config.sync.s3.pathStyle ? "" : "selected"} value="false">Virtual-hosted-style</option>
     </select>
 </div>
 <div class="b3-label b3-label--inner fn__flex">
@@ -98,6 +98,11 @@ const renderProvider = (provider: number) => {
         <option ${window.siyuan.config.sync.s3.skipTlsVerify ? "" : "selected"} value="false">Verify</option>
         <option ${window.siyuan.config.sync.s3.skipTlsVerify ? "selected" : ""} value="true">Skip</option>
     </select>
+</div>
+<div class="b3-label b3-label--inner fn__flex">
+    <div class="fn__flex-center fn__size200">Concurrent Reqs</div>
+    <div class="fn__space"></div>
+    <input id="s3ConcurrentReqs" class="b3-text-field fn__block" type="number" min="1" max="16" value="${window.siyuan.config.sync.s3.concurrentReqs}">
 </div>
 <div class="b3-label b3-label--inner fn__flex">
     <div class="fn__flex-1"></div>
@@ -152,6 +157,11 @@ const renderProvider = (provider: number) => {
         <option ${window.siyuan.config.sync.webdav.skipTlsVerify ? "" : "selected"} value="false">Verify</option>
         <option ${window.siyuan.config.sync.webdav.skipTlsVerify ? "selected" : ""} value="true">Skip</option>
     </select>
+</div>
+<div class="b3-label b3-label--inner fn__flex">
+    <div class="fn__flex-center fn__size200">Concurrent Reqs</div>
+    <div class="fn__space"></div>
+    <input id="webdavConcurrentReqs" class="b3-text-field fn__block" type="number" min="1" max="16" value="${window.siyuan.config.sync.webdav.concurrentReqs}">
 </div>
 <div class="b3-label b3-label--inner fn__flex">
     <div class="fn__flex-1"></div>
@@ -267,6 +277,13 @@ const bindProviderEvent = () => {
                 if (300 < timeout) {
                     timeout = 300;
                 }
+                let concurrentReqs = parseInt((providerPanelElement.querySelector("#s3ConcurrentReqs") as HTMLInputElement).value, 10);
+                if (1 > concurrentReqs) {
+                    concurrentReqs = 1;
+                }
+                if (16 < concurrentReqs) {
+                    concurrentReqs = 16;
+                }
                 (providerPanelElement.querySelector("#timeout") as HTMLInputElement).value = timeout.toString();
                 const s3 = {
                     endpoint: (providerPanelElement.querySelector("#endpoint") as HTMLInputElement).value,
@@ -277,6 +294,7 @@ const bindProviderEvent = () => {
                     region: (providerPanelElement.querySelector("#region") as HTMLInputElement).value,
                     skipTlsVerify: (providerPanelElement.querySelector("#s3SkipTlsVerify") as HTMLInputElement).value === "true",
                     timeout: timeout,
+                    concurrentReqs: concurrentReqs,
                 };
                 fetchPost("/api/sync/setSyncProviderS3", {s3}, () => {
                     window.siyuan.config.sync.s3 = s3;
@@ -289,6 +307,13 @@ const bindProviderEvent = () => {
                 if (300 < timeout) {
                     timeout = 300;
                 }
+                let concurrentReqs = parseInt((providerPanelElement.querySelector("#webdavConcurrentReqs") as HTMLInputElement).value, 10);
+                if (1 > concurrentReqs) {
+                    concurrentReqs = 1;
+                }
+                if (16 < concurrentReqs) {
+                    concurrentReqs = 16;
+                }
                 (providerPanelElement.querySelector("#timeout") as HTMLInputElement).value = timeout.toString();
                 const webdav = {
                     endpoint: (providerPanelElement.querySelector("#endpoint") as HTMLInputElement).value,
@@ -296,6 +321,7 @@ const bindProviderEvent = () => {
                     password: (providerPanelElement.querySelector("#password") as HTMLInputElement).value,
                     skipTlsVerify: (providerPanelElement.querySelector("#webdavSkipTlsVerify") as HTMLInputElement).value === "true",
                     timeout: timeout,
+                    concurrentReqs: concurrentReqs,
                 };
                 fetchPost("/api/sync/setSyncProviderWebDAV", {webdav}, () => {
                     window.siyuan.config.sync.webdav = webdav;
@@ -366,6 +392,16 @@ export const repos = {
             <option value="3" ${window.siyuan.config.sync.mode === 3 ? "selected" : ""}>${window.siyuan.languages.syncMode3}</option>
         </select>
     </div>
+    <div class="fn__flex b3-label${(window.siyuan.config.sync.mode !== 1) ? " fn__none" : ""}">
+        <div class="fn__flex-1">
+            ${window.siyuan.languages.syncInterval}
+            <div class="b3-label__text">${window.siyuan.languages.syncIntervalTip}</div>
+        </div>
+        <span class="fn__space"></span>
+        <input type="number" min="30" max="43200" id="syncInterval" class="b3-text-field fn__flex-center" value="${window.siyuan.config.sync.interval}" >
+        <span class="fn__space"></span>        
+        <span class="fn__flex-center ft__on-surface">${window.siyuan.languages.second}</span> 
+    </div>
     <label class="fn__flex b3-label${(window.siyuan.config.sync.mode !== 1 || window.siyuan.config.system.container === "docker" || window.siyuan.config.sync.provider !== 0) ? " fn__none" : ""}">
         <div class="fn__flex-1">
             ${window.siyuan.languages.syncPerception}
@@ -408,6 +444,21 @@ export const repos = {
                 processSync();
             });
         });
+        const syncIntervalElement = repos.element.querySelector("#syncInterval") as HTMLInputElement;
+        syncIntervalElement.addEventListener("change", () => {
+            let interval = parseInt(syncIntervalElement.value);
+            if (30 > interval) {
+                interval = 30;
+            }
+            if (43200 < interval) {
+                interval = 43200;
+            }
+            syncIntervalElement.value = interval.toString();
+            fetchPost("/api/sync/setSyncInterval", {interval: interval}, () => {
+                window.siyuan.config.sync.interval = interval;
+                processSync();
+            });
+        });
         const syncPerceptionElement = repos.element.querySelector("#syncPerception") as HTMLInputElement;
         syncPerceptionElement.addEventListener("change", () => {
             fetchPost("/api/sync/setSyncPerception", {enabled: syncPerceptionElement.checked}, () => {
@@ -428,6 +479,11 @@ export const repos = {
                     syncPerceptionElement.parentElement.classList.remove("fn__none");
                 } else {
                     syncPerceptionElement.parentElement.classList.add("fn__none");
+                }
+                if (syncModeElement.value === "1") {
+                    syncIntervalElement.parentElement.classList.remove("fn__none");
+                } else {
+                    syncIntervalElement.parentElement.classList.add("fn__none");
                 }
                 window.siyuan.config.sync.mode = parseInt(syncModeElement.value, 10);
             });
@@ -451,6 +507,11 @@ export const repos = {
                     syncPerceptionElement.parentElement.classList.add("fn__none");
                 } else {
                     syncPerceptionElement.parentElement.classList.remove("fn__none");
+                }
+                if (window.siyuan.config.sync.mode !== 1) {
+                    syncIntervalElement.parentElement.classList.add("fn__none");
+                } else {
+                    syncIntervalElement.parentElement.classList.remove("fn__none");
                 }
             });
         });

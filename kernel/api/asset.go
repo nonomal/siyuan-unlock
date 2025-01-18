@@ -29,6 +29,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/siyuan-note/filelock"
 	"github.com/siyuan-note/siyuan/kernel/model"
+	"github.com/siyuan-note/siyuan/kernel/sql"
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
 
@@ -46,26 +47,32 @@ func statAsset(c *gin.Context) {
 	if strings.HasPrefix(path, "assets/") {
 		var err error
 		p, err = model.GetAssetAbsPath(path)
-		if nil != err {
+		if err != nil {
 			ret.Code = 1
 			return
 		}
 
 	} else if strings.HasPrefix(path, "file://") {
 		p = strings.TrimPrefix(path, "file://")
+		if strings.Contains(p, ":") {
+			p = strings.TrimPrefix(p, "/")
+		}
+		if strings.Contains(p, "?") {
+			p = p[:strings.Index(p, "?")]
+		}
 	} else {
 		ret.Code = 1
 		return
 	}
 
 	info, err := os.Stat(p)
-	if nil != err {
+	if err != nil {
 		ret.Code = 1
 		return
 	}
 
 	t, err := times.Stat(p)
-	if nil != err {
+	if err != nil {
 		ret.Code = 1
 		return
 	}
@@ -82,7 +89,7 @@ func statAsset(c *gin.Context) {
 
 	ret.Data = map[string]interface{}{
 		"size":     info.Size(),
-		"hSize":    humanize.BytesCustomCeil(uint64(info.Size()), 2),
+		"hSize":    humanize.IBytesCustomCeil(uint64(info.Size()), 2),
 		"created":  created,
 		"hCreated": hCreated,
 		"updated":  updated,
@@ -107,13 +114,9 @@ func getImageOCRText(c *gin.Context) {
 	}
 
 	path := arg["path"].(string)
-	force := false
-	if forceArg := arg["force"]; nil != forceArg {
-		force = forceArg.(bool)
-	}
 
 	ret.Data = map[string]interface{}{
-		"text": util.GetAssetText(path, force),
+		"text": util.GetAssetText(path),
 	}
 }
 
@@ -129,6 +132,32 @@ func setImageOCRText(c *gin.Context) {
 	path := arg["path"].(string)
 	text := arg["text"].(string)
 	util.SetAssetText(path, text)
+
+	// 刷新 OCR 结果到数据库
+	util.NodeOCRQueueLock.Lock()
+	defer util.NodeOCRQueueLock.Unlock()
+	for _, id := range util.NodeOCRQueue {
+		sql.IndexNodeQueue(id)
+	}
+	util.NodeOCRQueue = nil
+}
+
+func ocr(c *gin.Context) {
+	ret := gulu.Ret.NewResult()
+	defer c.JSON(http.StatusOK, ret)
+
+	arg, ok := util.JsonArg(c, ret)
+	if !ok {
+		return
+	}
+
+	path := arg["path"].(string)
+
+	ocrJSON := util.OcrAsset(path)
+	ret.Data = map[string]interface{}{
+		"text":    util.GetOcrJsonText(ocrJSON),
+		"ocrJSON": ocrJSON,
+	}
 }
 
 func renameAsset(c *gin.Context) {
@@ -142,12 +171,15 @@ func renameAsset(c *gin.Context) {
 
 	oldPath := arg["oldPath"].(string)
 	newName := arg["newName"].(string)
-	err := model.RenameAsset(oldPath, newName)
-	if nil != err {
+	newPath, err := model.RenameAsset(oldPath, newName)
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 5000}
 		return
+	}
+	ret.Data = map[string]interface{}{
+		"newPath": newPath,
 	}
 }
 
@@ -162,7 +194,7 @@ func getDocImageAssets(c *gin.Context) {
 
 	id := arg["id"].(string)
 	assets, err := model.DocImageAssets(id)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -183,12 +215,12 @@ func setFileAnnotation(c *gin.Context) {
 	p = strings.ReplaceAll(p, "%23", "#")
 	data := arg["data"].(string)
 	writePath, err := resolveFileAnnotationAbsPath(p)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
 	}
-	if err := filelock.WriteFile(writePath, []byte(data)); nil != err {
+	if err := filelock.WriteFile(writePath, []byte(data)); err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -208,7 +240,7 @@ func getFileAnnotation(c *gin.Context) {
 	p := arg["path"].(string)
 	p = strings.ReplaceAll(p, "%23", "#")
 	readPath, err := resolveFileAnnotationAbsPath(p)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 5000}
@@ -220,7 +252,7 @@ func getFileAnnotation(c *gin.Context) {
 	}
 
 	data, err := filelock.ReadFile(readPath)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return
@@ -233,7 +265,7 @@ func getFileAnnotation(c *gin.Context) {
 func resolveFileAnnotationAbsPath(assetRelPath string) (ret string, err error) {
 	filePath := strings.TrimSuffix(assetRelPath, ".sya")
 	absPath, err := model.GetAssetAbsPath(filePath)
-	if nil != err {
+	if err != nil {
 		return
 	}
 	dir := filepath.Dir(absPath)
@@ -273,6 +305,15 @@ func getUnusedAssets(c *gin.Context) {
 	defer c.JSON(http.StatusOK, ret)
 
 	unusedAssets := model.UnusedAssets()
+	total := len(unusedAssets)
+
+	// List only 512 unreferenced assets https://github.com/siyuan-note/siyuan/issues/13075
+	const maxUnusedAssets = 512
+	if total > maxUnusedAssets {
+		unusedAssets = unusedAssets[:maxUnusedAssets]
+		util.PushMsg(fmt.Sprintf(model.Conf.Language(251), total, maxUnusedAssets), 5000)
+	}
+
 	ret.Data = map[string]interface{}{
 		"unusedAssets": unusedAssets,
 	}
@@ -299,7 +340,7 @@ func resolveAssetPath(c *gin.Context) {
 
 	path := arg["path"].(string)
 	p, err := model.GetAssetAbsPath(path)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 3000}
@@ -320,7 +361,7 @@ func uploadCloud(c *gin.Context) {
 
 	rootID := arg["id"].(string)
 	count, err := model.UploadAssets2Cloud(rootID)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		ret.Data = map[string]interface{}{"closeTimeout": 3000}
@@ -351,7 +392,7 @@ func insertLocalAssets(c *gin.Context) {
 	}
 	id := arg["id"].(string)
 	succMap, err := model.InsertLocalAssets(id, assetPaths, isUpload)
-	if nil != err {
+	if err != nil {
 		ret.Code = -1
 		ret.Msg = err.Error()
 		return

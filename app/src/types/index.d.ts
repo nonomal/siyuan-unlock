@@ -1,7 +1,7 @@
 type TPluginDockPosition = "LeftTop" | "LeftBottom" | "RightTop" | "RightBottom" | "BottomLeft" | "BottomRight"
 type TDockPosition = "Left" | "Right" | "Bottom"
 type TWS = "main" | "filetree" | "protyle"
-type TEditorMode = "preview" | "wysiwyg"
+type TDock = "file" | "outline" | "inbox" | "bookmark" | "tag" | "graph" | "globalGraph" | "backlink"
 type TOperation =
     "insert"
     | "update"
@@ -33,6 +33,7 @@ type TOperation =
     | "updateAttrViewColOption"
     | "setAttrViewName"
     | "doUpdateUpdated"
+    | "duplicateAttrViewKey"
     | "setAttrViewColIcon"
     | "setAttrViewFilters"
     | "setAttrViewSorts"
@@ -52,6 +53,8 @@ type TOperation =
     | "hideAttrViewName"
     | "setAttrViewColDate"
     | "unbindAttrViewBlock"
+    | "setAttrViewViewDesc"
+    | "setAttrViewColDesc"
 type TBazaarType = "templates" | "icons" | "widgets" | "themes" | "plugins"
 type TCardType = "doc" | "notebook" | "all"
 type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
@@ -59,10 +62,11 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "open-noneditableblock" |
     "open-menu-blockref" | "open-menu-fileannotationref" | "open-menu-tag" | "open-menu-link" | "open-menu-image" |
     "open-menu-av" | "open-menu-content" | "open-menu-breadcrumbmore" | "open-menu-doctree" | "open-menu-inbox" |
-    "open-siyuan-url-plugin" | "open-siyuan-url-block" |
+    "open-siyuan-url-plugin" | "open-siyuan-url-block" | "opened-notebook" |
+    "closed-notebook" |
     "paste" |
     "input-search" |
-    "loaded-protyle" | "loaded-protyle-dynamic" | "loaded-protyle-static" |
+    "loaded-protyle-dynamic" | "loaded-protyle-static" |
     "switch-protyle" |
     "destroy-protyle" |
     "lock-screen" |
@@ -103,7 +107,22 @@ type TAVFilterOperator =
     | "Is relative to today"
     | "Is true"
     | "Is false"
+
 declare module "blueimp-md5"
+
+declare class Highlight {
+    constructor(...range: Range[]);
+
+    add(range: Range): void
+
+    clear(): void
+
+    forEach(callbackfn: (value: Range, key: number) => void): void;
+}
+
+declare namespace CSS {
+    const highlights: Map<string, Highlight>;
+}
 
 interface Window {
     echarts: {
@@ -169,9 +188,17 @@ interface Window {
         openExternal(url: string): void
         changeStatusBarColor(color: string, mode: number): void
         writeClipboard(text: string): void
+        writeHTMLClipboard(text: string, html: string): void
         writeImageClipboard(uri: string): void
         readClipboard(): string
         getBlockURL(): string
+    }
+    JSHarmony: {
+        openExternal(url: string): void
+        changeStatusBarColor(color: string, mode: number): void
+        writeClipboard(text: string): void
+        writeHTMLClipboard(text: string, html: string): void
+        readClipboard(): string
     }
 
     Protyle: import("../protyle/method").default
@@ -189,6 +216,11 @@ interface Window {
     destroyTheme(): Promise<void>
 }
 
+interface filesPath {
+    notebookId: string,
+    openPaths: string[]
+}
+
 interface IPosition {
     x: number,
     y: number,
@@ -201,6 +233,7 @@ interface ISaveLayout {
     name: string,
     layout: IObject
     time: number
+    filesPaths: filesPath[]
 }
 
 interface IWorkspace {
@@ -259,44 +292,6 @@ interface ISearchAssetOption {
     k: string,
 }
 
-interface ISearchOption {
-    page: number
-    removed?: boolean  // 移除后需记录搜索内容 https://github.com/siyuan-note/siyuan/issues/7745
-    name?: string
-    sort: number,  //  0：按块类型（默认），1：按创建时间升序，2：按创建时间降序，3：按更新时间升序，4：按更新时间降序，5：按内容顺序（仅在按文档分组时），6：按相关度升序，7：按相关度降序
-    group: number,  // 0：不分组，1：按文档分组
-    hasReplace: boolean,
-    method: number //  0：文本，1：查询语法，2：SQL，3：正则表达式
-    hPath: string
-    idPath: string[]
-    k: string
-    r: string
-    types: ISearchType,
-    replaceTypes: {
-        [key: string]: boolean;
-    },
-}
-
-interface ISearchType {
-    audioBlock: boolean
-    videoBlock: boolean
-    iframeBlock: boolean
-    widgetBlock: boolean
-    mathBlock: boolean
-    table: boolean
-    blockquote: boolean
-    superBlock: boolean
-    paragraph: boolean
-    document: boolean
-    heading: boolean
-    list: boolean
-    listItem: boolean
-    codeBlock: boolean
-    htmlBlock: boolean
-    embedBlock: boolean
-    databaseBlock: boolean
-}
-
 interface ITextOption {
     color?: string,
     type: string
@@ -346,7 +341,7 @@ interface IBackStack {
         notebookId: string
     },
     scrollTop?: number,
-    callback?: string[],
+    callback?: TProtyleAction[],
     position?: {
         start: number,
         end: number
@@ -356,16 +351,20 @@ interface IBackStack {
     zoomId?: string
 }
 
+interface IEmojiItem {
+    unicode: string,
+    description: string,
+    description_zh_cn: string,
+    description_ja_jp: string,
+    keywords: string
+}
+
 interface IEmoji {
     id: string,
     title: string,
     title_zh_cn: string,
-    items: {
-        unicode: string,
-        description: string,
-        description_zh_cn: string,
-        keywords: string
-    }[]
+    title_ja_jp: string,
+    items: IEmojiItem[]
 }
 
 interface INotebook {
@@ -401,7 +400,14 @@ interface ISiyuan {
     mobile?: {
         editor?: import("../protyle").Protyle
         popEditor?: import("../protyle").Protyle
-        files?: import("../mobile/dock/MobileFiles").MobileFiles
+        docks?: {
+            outline: import("../mobile/dock/MobileOutline").MobileOutline | null,
+            file: import("../mobile/dock/MobileFiles").MobileFiles | null,
+            bookmark: import("../mobile/dock/MobileBookmarks").MobileBookmarks | null,
+            tag: import("../mobile/dock/MobileTags").MobileTags | null,
+            backlink: import("../mobile/dock/MobileBacklinks").MobileBacklinks | null,
+            inbox: import("../layout/dock/Inbox").Inbox | null,
+        } & { [key: string]: import("../layout/Model").Model | any };
     },
     user?: {
         userId: string
@@ -450,18 +456,11 @@ interface ISiyuan {
     bookmarkLabel?: string[]
     blockPanels: import("../block/Panel").BlockPanel[],
     dialogs: import("../dialog").Dialog[],
-    viewer?: Viewer
-}
-
-interface IScrollAttr {
-    rootId: string,
-    startId: string,
-    endId: string
-    scrollTop: number,
-    focusId?: string,
-    focusStart?: number
-    focusEnd?: number
-    zoomInId?: string
+    viewer?: Viewer,
+    /**
+     * 是否在发布服务下访问
+     */
+    isPublish?: boolean;
 }
 
 interface IOperation {
@@ -487,6 +486,7 @@ interface IOperation {
     type?: TAVCol // addAttrViewCol 专享
     deckID?: string // add/removeFlashcards 专享
     blockIDs?: string[] // add/removeFlashcards 专享
+    removeDest?: boolean // removeAttrViewCol 专享
 }
 
 interface IOperationSrcs {
@@ -579,11 +579,11 @@ interface IOpenFileOptions {
     position?: string, // file 或者 asset，打开位置
     page?: number | string, // asset
     mode?: TEditorMode // file
-    action?: string[]
+    action?: TProtyleAction[]
     keepCursor?: boolean // file，是否跳转到新 tab 上
     zoomIn?: boolean // 是否缩放
     removeCurrentTab?: boolean // 在当前页签打开时需移除原有页签
-    afterOpen?: () => void // 打开后回调
+    afterOpen?: (model?: import("../layout/Model").Model) => void // 打开后回调
 }
 
 interface ILayoutOptions {
@@ -693,6 +693,7 @@ interface IBlock {
     name?: string;
     memo?: string;
     alias?: string;
+    tag?: string;
     refs?: IBlock[];
     children?: IBlock[]
     length?: number
@@ -735,6 +736,8 @@ interface IMenu {
     bind?: (element: HTMLElement) => void
     index?: number
     element?: HTMLElement
+    ignore?: boolean
+    warning?: boolean
 }
 
 interface IBazaarItem {
@@ -778,10 +781,12 @@ interface IAV {
 
 interface IAVView {
     name: string
+    desc: string
     id: string
     type: string
     icon: string
     hideAttrViewName: boolean
+    pageSize: number
 }
 
 interface IAVTable extends IAVView {
@@ -817,6 +822,7 @@ interface IAVColumn {
     icon: string,
     id: string,
     name: string,
+    desc: string,
     wrap: boolean,
     pin: boolean,
     hidden: boolean,
@@ -831,6 +837,7 @@ interface IAVColumn {
     options?: {
         name: string,
         color: string,
+        desc?: string,
     }[],
     relation?: IAVColumnRelation,
     rollup?: IAVCellRollupValue
@@ -867,7 +874,8 @@ interface IAVCellValue {
     mAsset?: IAVCellAssetValue[]
     block?: {
         content: string,
-        id?: string
+        id?: string,
+        icon?: string
     }
     url?: {
         content: string

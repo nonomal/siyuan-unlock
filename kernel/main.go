@@ -48,10 +48,13 @@ func main() {
 	util.PushClearAllMsg()
 
 	job.StartCron()
+
+	go util.LoadSysFonts()
 	go model.AutoGenerateFileHistory()
 	go cache.LoadAssets()
 	go util.CheckFileSysStatus()
 
 	model.WatchAssets()
+	model.WatchEmojis()
 	model.HandleSignal()
 }
